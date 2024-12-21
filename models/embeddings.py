@@ -10,10 +10,10 @@ from io import BytesIO
 
 class EmbeddingManager:
     def __init__(self):
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
+        url = os.environ.get("SWIFEY_SUPABASE_URL")
+        key = os.environ.get("SWIFEY_SUPABASE_KEY")
         if not url or not key:
-            raise ValueError("Supabase credentials not found in environment variables")
+            raise ValueError("Supabase credentials not found in environment variables (SWIFEY_SUPABASE_URL and SWIFEY_SUPABASE_KEY)")
         
         self.supabase: Client = create_client(url, key)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"

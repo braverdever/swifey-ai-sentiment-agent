@@ -4,6 +4,11 @@ from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api import embeddings
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="Swifey AI Agent")
 
@@ -46,7 +51,7 @@ def main():
     args = parser.parse_args()
     
     uvicorn.run(
-        "api.app:app",
+        "server:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
