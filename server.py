@@ -1,6 +1,28 @@
 import uvicorn
 import argparse
 from config import settings
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from api import embeddings, attributes
+
+app = FastAPI(title="Swifey AI Agent")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Modify this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(embeddings.router, prefix="/api/v1", tags=["embeddings"])
+app.include_router(attributes.router, prefix="/api/v1", tags=["attributes"])
+
+@app.get("/")
+async def root():
+    return {"message": "Swifey AI Agent API"}
 
 def main():
     """Run the FastAPI server."""

@@ -36,3 +36,14 @@ class PersonaLearningMetrics(Base):
     metric_value = sa.Column(sa.Float)
     timestamp = sa.Column(sa.DateTime, default=datetime.utcnow)
     details = sa.Column(sa.JSON) 
+
+class TruthMeter(Base):
+    __tablename__ = 'truth_meter'
+    
+    id = sa.Column(sa.Integer, primary_key=True)
+    persona_id = sa.Column(sa.String(255), index=True)
+    base_truth_level = sa.Column(sa.Float)  # Base truth level for the persona (0-1)
+    context_truth_adjustments = sa.Column(sa.JSON)  # Adjustments based on context
+    topic_truth_weights = sa.Column(sa.JSON)  # Truth weights for different topics
+    last_updated = sa.Column(sa.DateTime, default=datetime.utcnow)
+    created_at = sa.Column(sa.DateTime, default=datetime.utcnow) 

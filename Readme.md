@@ -27,23 +27,27 @@ A powerful and flexible AI agent system that can analyze messages, generate cont
 ## Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/yourusername/swifey-ai-agent.git
 cd swifey-ai-agent
 ```
 
 2. Create and activate a virtual environment:
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 3. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 4. Set up environment variables in `.env` file:
+
 ```env
 SWIFEY_MODEL_PATH=/path/to/llama/model.bin
 SWIFEY_DATABASE_URL=sqlite:///swifey.db
@@ -59,11 +63,13 @@ SWIFEY_SUPABASE_KEY=your_supabase_key
 ### Running the Agent
 
 1. Start Redis server if not already running:
+
 ```bash
 redis-server
 ```
 
 2. Run the agent as a CLI tool:
+
 ```bash
 python -m swifey_ai_agent
 ```
@@ -71,11 +77,13 @@ python -m swifey_ai_agent
 ### Running the API Server
 
 1. Start the server:
+
 ```bash
 python -m swifey_ai_agent.server --port 8000 --reload
 ```
 
 2. Access the API documentation:
+
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
@@ -85,6 +93,7 @@ The API uses Supabase JWT authentication. To access protected endpoints:
 
 1. Sign up/login through Supabase to get a JWT token
 2. Include the token in your requests:
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat" \
      -H "Authorization: Bearer your_jwt_token" \
@@ -119,6 +128,7 @@ All API endpoints (except `/`, `/docs`, `/redoc`, and `/openapi.json`) require a
 ### API Endpoints
 
 #### Process Chat Messages
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat" \
      -H "Authorization: Bearer your_jwt_token" \
@@ -149,12 +159,14 @@ curl -X POST "http://localhost:8000/api/v1/chat" \
 ```
 
 The chat endpoint will:
+
 - Process a list of messages
 - Generate a response after every N messages (controlled by `frequency`)
 - Consider up to M previous messages for context (controlled by `max_context_messages`)
 - Return whether a response should be generated and the response itself
 
 #### Process Single Message
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/message" \
      -H "Authorization: Bearer your_jwt_token" \
@@ -167,6 +179,7 @@ curl -X POST "http://localhost:8000/api/v1/message" \
 ```
 
 #### Submit Feedback
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/feedback" \
      -H "Authorization: Bearer your_jwt_token" \
@@ -182,6 +195,7 @@ curl -X POST "http://localhost:8000/api/v1/feedback" \
 ```
 
 #### Check Health Status
+
 ```bash
 curl "http://localhost:8000/api/v1/health" \
      -H "Authorization: Bearer your_jwt_token"
@@ -244,6 +258,7 @@ CREATE TABLE personas (
 ```
 
 Example persona data:
+
 ```json
 {
   "id": "default_assistant",
@@ -272,15 +287,15 @@ Example persona data:
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| SWIFEY_MODEL_PATH | Path to LLaMA model file | models/llama-model.bin |
-| SWIFEY_DATABASE_URL | Database connection URL | sqlite:///swifey.db |
-| SWIFEY_REDIS_HOST | Redis host | localhost |
-| SWIFEY_REDIS_PORT | Redis port | 6379 |
-| SWIFEY_LOG_LEVEL | Logging level | INFO |
-| SWIFEY_SUPABASE_URL | Supabase project URL | None |
-| SWIFEY_SUPABASE_KEY | Supabase project key | None |
+| Variable            | Description              | Default                |
+| ------------------- | ------------------------ | ---------------------- |
+| SWIFEY_MODEL_PATH   | Path to LLaMA model file | models/llama-model.bin |
+| SWIFEY_DATABASE_URL | Database connection URL  | sqlite:///swifey.db    |
+| SWIFEY_REDIS_HOST   | Redis host               | localhost              |
+| SWIFEY_REDIS_PORT   | Redis port               | 6379                   |
+| SWIFEY_LOG_LEVEL    | Logging level            | INFO                   |
+| SWIFEY_SUPABASE_URL | Supabase project URL     | None                   |
+| SWIFEY_SUPABASE_KEY | Supabase project key     | None                   |
 
 ## Development
 
@@ -293,12 +308,14 @@ pytest tests/
 ### Code Style
 
 The project uses:
+
 - Black for code formatting
 - isort for import sorting
 - mypy for type checking
 - flake8 for linting
 
 Run all checks:
+
 ```bash
 black swifey_ai_agent
 isort swifey_ai_agent

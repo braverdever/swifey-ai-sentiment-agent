@@ -10,7 +10,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 
-from models.database import Base, SentimentAnalysis, QuestionFeedback, PersonaLearningMetrics
+from models.database import Base, SentimentAnalysis, QuestionFeedback, PersonaLearningMetrics, TruthMeter
 from models.persona import Persona
 from db.supabase import get_supabase
 from models.llm_adapter import create_llm_adapter
@@ -66,6 +66,10 @@ class AgentSystem:
         
         # Metrics
         self.quality_metrics = ['relevance', 'clarity', 'depth', 'timing', 'context_awareness']
+        
+        # Initialize truth meter cache
+        self.truth_meter_cache = {}
+        self._load_truth_meters()
 
     def _load_personas(self) -> Dict[str, Persona]:
         """Load persona configurations from Supabase"""
@@ -144,26 +148,32 @@ class AgentSystem:
         message: str,
         context: str,
         analysis: Optional[Dict] = None
-    ) -> str:
-        """Generate response from persona"""
+    ) -> Dict[str, Any]:
+        """Generate response from persona with truth meter consideration"""
         persona = self.personas[persona_id]
         
         if not analysis:
             analysis = self.analyze_message(message, persona_id, context)
         
+        truth_level = self.calculate_truth_level(persona_id, message, context)
+        
         prompt = f"""As {persona.name}, generate a response:
-                        {persona.get_prompt_context()}
-                        Context: {context}
-                        Message: "{message}"
-                        Analysis: {json.dumps(analysis)}
+                    {persona.get_prompt_context()}
+                    Context: {context}
+                    Message: "{message}"
+                    Analysis: {json.dumps(analysis)}
+                    Truth Level: {truth_level}
 
-                        Generate a natural response that:
-                        1. Reflects {persona.name}'s personality
-                        2. Uses appropriate language patterns
-                        3. Shows domain expertise in: {', '.join(persona.knowledge_domains)}
-                        4. Maintains emotional consistency
+                    Generate a natural response that:
+                    1. Reflects {persona.name}'s personality
+                    2. Uses appropriate language patterns
+                    3. Shows domain expertise in: {', '.join(persona.knowledge_domains)}
+                    4. Maintains emotional consistency
+                    5. Adjusts truthfulness to {truth_level:.2f} (where 1.0 is completely truthful)
+                       - At lower truth levels, be more evasive or selective with information
+                       - At higher truth levels, be more direct and comprehensive
 
-                        Response:"""
+                    Response:"""
 
         try:
             response = self.llm(
@@ -171,10 +181,16 @@ class AgentSystem:
                 max_tokens=200,
                 temperature=0.7
             )
-            return response['choices'][0]['text'].strip()
+            return {
+                'content': response['choices'][0]['text'].strip(),
+                'truth_level': truth_level
+            }
         except Exception as e:
             logger.error(f"Response generation error: {e}")
-            return self._get_fallback_response(persona_id)
+            return {
+                'content': self._get_fallback_response(persona_id),
+                'truth_level': truth_level
+            }
 
     def submit_feedback(
         self,
@@ -280,3 +296,118 @@ class AgentSystem:
         """Get fallback response when main response generation fails"""
         persona = self.personas[persona_id]
         return persona.get_response_template() or "I understand and acknowledge your message." 
+
+    def _load_truth_meters(self):
+        """Load truth meters for all personas from database"""
+        with Session(self.engine) as session:
+            truth_meters = session.query(TruthMeter).all()
+            for tm in truth_meters:
+                self.truth_meter_cache[tm.persona_id] = {
+                    'base_level': tm.base_truth_level,
+                    'adjustments': tm.context_truth_adjustments,
+                    'weights': tm.topic_truth_weights
+                }
+
+    def set_truth_meter(
+        self,
+        persona_id: str,
+        base_truth_level: float,
+        context_adjustments: Dict[str, float] = None,
+        topic_weights: Dict[str, float] = None
+    ):
+        """Set or update truth meter for a persona
+        
+        Args:
+            persona_id: The ID of the persona
+            base_truth_level: Base truth level (0-1) where:
+                1.0 = Always completely truthful
+                0.8-0.9 = Mostly truthful with minor omissions
+                0.6-0.7 = Selective truth-telling
+                0.4-0.5 = Evasive or deflective
+                0.2-0.3 = Mostly deceptive
+                0.0-0.1 = Completely deceptive
+            context_adjustments: Dict of context keywords and their multipliers
+                Example: {
+                    "emergency": 1.0,  # Always truthful in emergencies
+                    "casual": 0.8,     # Slightly less truthful in casual conversation
+                    "personal": 0.6,   # More evasive with personal topics
+                }
+            topic_weights: Dict of topics and their truth multipliers
+                Example: {
+                    "health": 1.0,     # Always truthful about health
+                    "opinions": 0.7,   # Less truthful about personal opinions
+                    "secrets": 0.3,    # Very evasive about secrets
+                }
+        """
+        context_adjustments = context_adjustments or {}
+        topic_weights = topic_weights or {}
+        
+        # Ensure values are within valid range
+        base_truth_level = max(0.0, min(1.0, base_truth_level))
+        context_adjustments = {k: max(0.0, min(1.0, v)) for k, v in context_adjustments.items()}
+        topic_weights = {k: max(0.0, min(1.0, v)) for k, v in topic_weights.items()}
+        
+        # Update database
+        with Session(self.engine) as session:
+            truth_meter = session.query(TruthMeter).filter_by(persona_id=persona_id).first()
+            
+            if truth_meter:
+                truth_meter.base_truth_level = base_truth_level
+                truth_meter.context_truth_adjustments = context_adjustments
+                truth_meter.topic_truth_weights = topic_weights
+                truth_meter.last_updated = datetime.utcnow()
+            else:
+                truth_meter = TruthMeter(
+                    persona_id=persona_id,
+                    base_truth_level=base_truth_level,
+                    context_truth_adjustments=context_adjustments,
+                    topic_truth_weights=topic_weights
+                )
+                session.add(truth_meter)
+            
+            session.commit()
+        
+        # Update cache
+        self.truth_meter_cache[persona_id] = {
+            'base_level': base_truth_level,
+            'adjustments': context_adjustments,
+            'weights': topic_weights
+        }
+
+    def get_truth_meter(self, persona_id: str) -> Optional[Dict[str, Any]]:
+        """Get truth meter settings for a persona"""
+        return self.truth_meter_cache.get(persona_id)
+
+    def calculate_truth_level(
+        self,
+        persona_id: str,
+        message: str,
+        context: str
+    ) -> float:
+        """Calculate truth level for a response based on persona and context"""
+        if persona_id not in self.truth_meter_cache:
+            return 1.0  # Default to full truth if no meter exists
+            
+        tm = self.truth_meter_cache[persona_id]
+        truth_level = tm['base_level']
+        
+        # Track which adjustments were applied
+        applied_adjustments = []
+        
+        # Apply context-based adjustments
+        for context_key, adjustment in tm['adjustments'].items():
+            if context_key.lower() in context.lower():
+                truth_level *= adjustment
+                applied_adjustments.append(f"Context '{context_key}': {adjustment}")
+                
+        # Apply topic-based weights
+        for topic, weight in tm['weights'].items():
+            if topic.lower() in message.lower() or topic.lower() in context.lower():
+                truth_level *= weight
+                applied_adjustments.append(f"Topic '{topic}': {weight}")
+        
+        # Log adjustments for transparency
+        if applied_adjustments:
+            logger.info(f"Truth adjustments for {persona_id}: {', '.join(applied_adjustments)}")
+        
+        return max(0.0, min(1.0, truth_level))  # Ensure value stays between 0 and 1
