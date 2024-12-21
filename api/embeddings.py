@@ -1,11 +1,28 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional, Dict, Any, List, Union
+from pydantic import BaseModel, Field
 from models.embeddings import EmbeddingManager
 from pydantic import BaseModel
+import os
 import aiohttp
+from datetime import datetime
 
 router = APIRouter()
 embedding_manager = EmbeddingManager()
+
+embedding_manager.hyperbolic_api_url = os.environ.get("HYPERBOLIC_API_URL")
+embedding_manager.hyperbolic_api_key = os.environ.get("HYPERBOLIC_API_KEY")
+
+class SearchSimilarRequest(BaseModel):
+    agent_id: str = Field(..., description="ID of the agent")
+    response: str = Field(..., description="Response text to search for similarities")
+    per_page: int = Field(default=10, ge=1, le=100, description="Number of results per page")
+    filters: Optional[Dict] = Field(default=None, description="Additional filters to apply")
+
+class SearchSimilarResponse(BaseModel):
+    results: List[Dict[str, Any]]
+    meta: Dict[str, Any]
+
 
 class TextEmbedRequest(BaseModel):
     texts: List[str]
@@ -13,46 +30,107 @@ class TextEmbedRequest(BaseModel):
     agent_id: str
     embedding_type: str
 
+class SimilarityResponse(BaseModel):
+    message: str
+    similarity_metrics: Dict[str, Any]
+
+class SimilarityRequest(BaseModel):
+    profile1_id: str
+    profile2_id: str
+    include_visual: bool = True
+    store_result: bool = True
+
+
+@router.post("/search-similar-responses", response_model=SearchSimilarResponse)
+async def search_similar_responses(request: SearchSimilarRequest):
+    """
+    Search for similar responses based on CLIP embeddings
+    """
+    try:
+        print(f"Received search request for agent_id: {request.agent_id}")
+        print(f"Query response: {request.response}")
+        
+        if not request.filters:
+            request.filters = {"embedding_type": "text"}
+        
+        result = await embedding_manager.search_similar_responses(
+            response=request.response,
+            agent_id=request.agent_id,
+            per_page=request.per_page,
+            filters=request.filters
+        )
+        
+        print(f"Search results - Total matches: {result['meta']['total_matches']}")
+        return result
+    except Exception as e:
+        print(f"Error in search endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "meta": {
+                    "agent_id": request.agent_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
+
+
 @router.post("/embed/images")
 async def create_image_embeddings(
-    files: List[Union[UploadFile, str]] = File(...),
-    user_id: str = None,
-    agent_id: str = None,
-    embedding_type: str = None
+    files: List[UploadFile] = File(...),
+    user_id: str = Form(...),
+    agent_id: str = Form(...),
+    embedding_type: str = Form(...)
 ):
-    """Create and store CLIP embeddings for multiple images, either uploaded or provided as URLs"""
+    print("Received request with:")
+    print(f"user_id: {user_id}")
+    print(f"agent_id: {agent_id}")
+    print(f"embedding_type: {embedding_type}")
+    print(f"Number of files: {len(files)}")
+    
     if not user_id or not agent_id or not embedding_type:
         raise HTTPException(status_code=400, detail="user_id, agent_id, and embedding_type are required")
     
     try:
-        # Process all images, either uploaded or downloaded from URLs
         image_data = []
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif']
         for file in files:
-            if isinstance(file, UploadFile):
-                if not file.content_type.startswith('image/'):
-                    raise HTTPException(status_code=400, detail=f"File {file.filename} must be an image")
-                image_data.append(await file.read())
-            elif isinstance(file, str):
-                # Assuming file is a URL, download the image
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(file) as response:
-                        if response.status == 200:
-                            image_data.append(await response.read())
-                        else:
-                            raise HTTPException(status_code=400, detail=f"Failed to download image from URL {file}")
-            else:
-                raise HTTPException(status_code=400, detail="Invalid file type")
+            print(f"Processing file: {file.filename}")
+            print(f"Content type: {file.content_type}")
+            
+            if file.content_type not in allowed_types:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid file type: {file.content_type}. Allowed types are: {allowed_types}"
+                )
+            
+            try:
+                file_data = await file.read()
+                print(f"Successfully read file data, size: {len(file_data)} bytes")
+                image_data.append(file_data)
+            except Exception as e:
+                print(f"Error reading file: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
         
-        result = await embedding_manager.create_embeddings(
-            items=image_data,
-            user_id=user_id,
-            agent_id=agent_id,
-            embedding_type=embedding_type
-        )
-        return result
+        try:
+            print("Attempting to create embeddings...")
+            result = await embedding_manager.create_embeddings(
+                items=image_data,
+                user_id=user_id,
+                agent_id=agent_id,
+                embedding_type=embedding_type
+            )
+            print("Successfully created embeddings")
+            return result
+        except Exception as e:
+            print(f"Error in embedding_manager.create_embeddings: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error creating embeddings: {str(e)}")
+            
     except Exception as e:
+        print(f"Unexpected error in create_image_embeddings: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @router.post("/embed/texts")
 async def create_text_embeddings(request: TextEmbedRequest):
     """Create and store CLIP embeddings for multiple texts"""
@@ -66,6 +144,31 @@ async def create_text_embeddings(request: TextEmbedRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/similarity/generate", response_model=SimilarityResponse)
+async def generate_similarity_message(request: SimilarityRequest):
+    """Generate a similarity message for two profiles with enhanced metrics."""
+    try:
+        result = await embedding_manager.generate_enhanced_similarity_message(
+            profile1_id=request.profile1_id,
+            profile2_id=request.profile2_id,
+            include_visual=request.include_visual
+        )
+        
+        if request.store_result:
+            try:
+                await embedding_manager.store_similarity_result(
+                    request.profile1_id,
+                    request.profile2_id,
+                    result
+                )
+            except Exception as e:
+                print(f"Warning: Failed to store similarity result: {e}")
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/similar/{user_id}")
 async def search_similar(
@@ -122,4 +225,4 @@ async def compare_users(
         )
         return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
