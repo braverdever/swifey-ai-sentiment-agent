@@ -3,7 +3,7 @@ import argparse
 from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api import embeddings, attributes
+from api import embeddings
 
 app = FastAPI(title="Swifey AI Agent")
 
@@ -18,7 +18,6 @@ app.add_middleware(
 
 # Include routers
 app.include_router(embeddings.router, prefix="/api/v1", tags=["embeddings"])
-app.include_router(attributes.router, prefix="/api/v1", tags=["attributes"])
 
 @app.get("/")
 async def root():

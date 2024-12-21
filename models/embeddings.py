@@ -3,7 +3,7 @@ import torch
 import clip
 from PIL import Image
 import numpy as np
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from supabase import create_client, Client
 from io import BytesIO
@@ -19,64 +19,126 @@ class EmbeddingManager:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
     
-    async def create_image_embedding(
+    async def create_embeddings(
         self,
-        image_data: bytes,
+        items: List[Union[bytes, str]],  # List of image bytes or text strings
         user_id: str,
         agent_id: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Create and store CLIP embedding for an image"""
+        embedding_type: str
+    ) -> List[Dict[str, Any]]:
+        """Create and store CLIP embeddings for multiple items"""
         try:
-            # Process image and generate embedding
-            image = Image.open(BytesIO(image_data))
-            image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+            embeddings_data = []
             
-            with torch.no_grad():
-                image_features = self.model.encode_image(image_input)
-                embedding = image_features.cpu().numpy().flatten().tolist()
+            for item in items:
+                if isinstance(item, bytes):  # Image
+                    # Process image and generate embedding
+                    image = Image.open(BytesIO(item))
+                    image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+                    
+                    with torch.no_grad():
+                        features = self.model.encode_image(image_input)
+                        embedding = features.cpu().numpy().flatten().tolist()
+                
+                else:  # Text
+                    # Process text and generate embedding
+                    text_input = clip.tokenize([item]).to(self.device)
+                    
+                    with torch.no_grad():
+                        features = self.model.encode_text(text_input)
+                        embedding = features.cpu().numpy().flatten().tolist()
+                
+                embeddings_data.append({
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "embedding": embedding,
+                    "embedding_type": embedding_type,
+                    "created_at": datetime.utcnow().isoformat()
+                })
             
-            # Store in Supabase
-            embedding_data = {
-                "user_id": user_id,
-                "agent_id": agent_id,
-                "embedding": embedding,
-                "metadata": metadata or {},
-                "created_at": datetime.utcnow().isoformat(),
-                "embedding_type": "clip_image"
-            }
-            
-            result = self.supabase.table("embeddings").insert(embedding_data).execute()
-            return result.data[0]
+            # Store all embeddings in Supabase
+            result = self.supabase.table("embeddings").insert(embeddings_data).execute()
+            return result.data
             
         except Exception as e:
-            raise Exception(f"Failed to create image embedding: {str(e)}")
+            raise Exception(f"Failed to create embeddings: {str(e)}")
     
-    async def search_similar_images(
+    async def search_similar(
         self,
         query_embedding: List[float],
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        embedding_type: Optional[str] = None,
         limit: int = 10,
         similarity_threshold: float = 0.7
     ) -> List[Dict[str, Any]]:
-        """Search for similar images using cosine similarity"""
-        query = self.supabase.table("embeddings").select("*")
-        
-        if user_id:
-            query = query.eq("user_id", user_id)
-        if agent_id:
-            query = query.eq("agent_id", agent_id)
+        """Search for similar items using cosine similarity"""
+        try:
+            # Build the query with similarity search
+            query = self.supabase.rpc(
+                'match_embeddings',
+                {
+                    'query_embedding': query_embedding,
+                    'match_threshold': similarity_threshold,
+                    'match_count': limit
+                }
+            )
             
-        # Add vector similarity search condition
-        # Note: This assumes you've set up the appropriate vector similarity search function in Supabase
-        query = query.execute()
+            if user_id:
+                query = query.eq('user_id', user_id)
+            if agent_id:
+                query = query.eq('agent_id', agent_id)
+            if embedding_type:
+                query = query.eq('embedding_type', embedding_type)
+            
+            result = query.execute()
+            return result.data
         
-        return query.data
+        except Exception as e:
+            raise Exception(f"Failed to search similar items: {str(e)}")
 
-    @staticmethod
-    def calculate_similarity(embedding1: List[float], embedding2: List[float]) -> float:
-        """Calculate cosine similarity between two embeddings"""
-        vec1 = np.array(embedding1)
-        vec2 = np.array(embedding2)
-        return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))) 
+    async def find_similar_users(
+        self,
+        user_id: str,
+        embedding_type: Optional[str] = None,
+        similarity_threshold: float = 0.7,
+        max_users: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Find similar users based on their embeddings"""
+        try:
+            result = self.supabase.rpc(
+                'find_similar_users',
+                {
+                    'target_user_id': user_id,
+                    'embedding_type_filter': embedding_type,
+                    'similarity_threshold': similarity_threshold,
+                    'max_users': max_users
+                }
+            ).execute()
+            
+            return result.data
+        
+        except Exception as e:
+            raise Exception(f"Failed to find similar users: {str(e)}")
+
+    async def compare_users(
+        self,
+        user_id_1: str,
+        user_id_2: str,
+        embedding_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Compare two users based on their embeddings"""
+        try:
+            result = self.supabase.rpc(
+                'compare_users',
+                {
+                    'user_id_1': user_id_1,
+                    'user_id_2': user_id_2,
+                    'embedding_type_filter': embedding_type
+                }
+            ).execute()
+            
+            return result.data
+        
+        except Exception as e:
+            raise Exception(f"Failed to compare users: {str(e)}")
