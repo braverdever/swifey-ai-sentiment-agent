@@ -81,14 +81,16 @@ async def create_image_embeddings(
     files: List[UploadFile] = File(...),
     user_id: str = Form(...),
     agent_id: str = Form(...),
-    embedding_type: str = Form(...)
+    embedding_type: str = Form(...),
+    data_type: Optional[str] = Form(None)
 ):
     print("Received request with:")
     print(f"user_id: {user_id}")
     print(f"agent_id: {agent_id}")
     print(f"embedding_type: {embedding_type}")
+    print(f'data_type: {data_type}')
     print(f"Number of files: {len(files)}")
-    
+
     if not user_id or not agent_id or not embedding_type:
         raise HTTPException(status_code=400, detail="user_id, agent_id, and embedding_type are required")
     
@@ -119,7 +121,8 @@ async def create_image_embeddings(
                 items=image_data,
                 user_id=user_id,
                 agent_id=agent_id,
-                embedding_type=embedding_type
+                embedding_type=embedding_type,
+                data_type=data_type
             )
             print("Successfully created embeddings")
             return result
@@ -139,7 +142,8 @@ async def create_text_embeddings(request: TextEmbedRequest):
             items=request.texts,
             user_id=request.user_id,
             agent_id=request.agent_id,
-            embedding_type=request.embedding_type
+            embedding_type=request.embedding_type,
+            data_type=request.data_type
         )
         return result
     except Exception as e:
