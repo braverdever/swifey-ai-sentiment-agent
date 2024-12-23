@@ -1,11 +1,10 @@
 import os
-import uvicorn 
+import uvicorn
 import argparse
-from pathlib import Path
+from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.embeddings import router as embeddings_router  # Changed from original import
-from config import settings
+from api.embeddings import router as embeddings_router
 from dotenv import load_dotenv
 
 # Load environment variables from .env file

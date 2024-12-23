@@ -12,22 +12,22 @@ WORKDIR /app
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies with PyTorch for CPU
+# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# Copy the entire application with the correct structure
 COPY . .
 
-# Create models directory if it doesn't exist
-RUN mkdir -p models
+# Set Python path - this is important because you have nested modules
+ENV PYTHONPATH="${PYTHONPATH}:/app"
 
-# Set Python path
-ENV PYTHONPATH=/app
+# Create a non-root user and set proper permissions
+RUN useradd -m appuser && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app
 
-# Create a non-root user and give permissions
-RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose the port the app runs on

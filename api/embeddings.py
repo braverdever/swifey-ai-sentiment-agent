@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
-from models.embeddings import EmbeddingManager
+from models.embeddings import EmbeddingManager  # Import from models
 from pydantic import BaseModel
 import os
 import aiohttp

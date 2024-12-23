@@ -469,3 +469,5 @@ class EmbeddingManager:
         
         except Exception as e:
             raise Exception(f"Failed to compare users: {str(e)}")
+        
+__all__ = ['EmbeddingManager']
