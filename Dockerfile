@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
-WORKDIR /app
+WORKDIR /
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
@@ -17,16 +17,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire application with the correct structure
+# Copy the entire application
 COPY . .
-
-# Add the application directory to PYTHONPATH
-ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Create a non-root user and set proper permissions
 RUN useradd -m appuser && \
-    chown -R appuser:appuser /app && \
-    chmod -R 755 /app
+    chown -R appuser:appuser / && \
+    chmod -R 755 /
 
 USER appuser
 

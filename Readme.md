@@ -287,12 +287,6 @@ Example persona data:
 
 ## Development
 
-### Running Tests
-
-```bash
-pytest tests/
-```
-
 ### Code Style
 
 The project uses:
