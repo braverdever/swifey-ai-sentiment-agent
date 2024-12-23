@@ -2,9 +2,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, List
 import uuid
 
-from ..core.agent_system import AgentSystem
-from . import models
-from .. import __version__
+from core.agent_system import AgentSystem
+from api import models
+
+__version__ = "0.1.0"  # Define version locally for now
 
 router = APIRouter()
 
@@ -57,7 +58,6 @@ async def process_chat(
         
         response = None
         analysis = None
-        truth_level = None
         
         if should_respond:
             # Format recent messages as context
@@ -79,7 +79,7 @@ async def process_chat(
                 context=full_context
             )
             
-            # Generate response with truth level
+            # Generate response
             response_data = agent.generate_response(
                 persona_id=request.persona_id,
                 message=last_message,
@@ -88,7 +88,6 @@ async def process_chat(
             )
             
             response = response_data['content']
-            truth_level = response_data['truth_level']
         
         return models.ChatResponse(
             response=response,
@@ -96,8 +95,7 @@ async def process_chat(
             analysis=analysis,
             persona_id=request.persona_id,
             conversation_id=conversation_id,
-            message_count=message_count,
-            truth_level=truth_level
+            message_count=message_count
         )
         
     except Exception as e:
@@ -125,7 +123,7 @@ async def process_message(
             context=request.context
         )
         
-        # Generate response with truth level
+        # Generate response
         response_data = agent.generate_response(
             persona_id=request.persona_id,
             message=request.message,
@@ -137,8 +135,7 @@ async def process_message(
             response=response_data['content'],
             analysis=analysis,
             persona_id=request.persona_id,
-            conversation_id=conversation_id,
-            truth_level=response_data['truth_level']
+            conversation_id=conversation_id
         )
         
     except Exception as e:
@@ -208,63 +205,4 @@ async def health_check(
         )
     finally:
         agent.close()
-
-@router.post("/truth-meter", response_model=models.TruthMeterResponse)
-async def set_truth_meter(
-    request: models.TruthMeterRequest,
-    agent: AgentSystem = Depends(get_agent_system)
-) -> models.TruthMeterResponse:
-    """Set or update truth meter settings for a persona."""
-    try:
-        agent.set_truth_meter(
-            persona_id=request.persona_id,
-            base_truth_level=request.base_truth_level,
-            context_adjustments=request.context_adjustments,
-            topic_weights=request.topic_weights
-        )
-        
-        return models.TruthMeterResponse(
-            success=True,
-            persona_id=request.persona_id,
-            message="Truth meter settings updated successfully",
-            settings=agent.get_truth_meter(request.persona_id)
-        )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error updating truth meter: {str(e)}"
-        )
-    finally:
-        agent.close()
-
-@router.get("/truth-meter/{persona_id}", response_model=models.TruthMeterResponse)
-async def get_truth_meter(
-    persona_id: str,
-    agent: AgentSystem = Depends(get_agent_system)
-) -> models.TruthMeterResponse:
-    """Get truth meter settings for a persona."""
-    try:
-        settings = agent.get_truth_meter(persona_id)
-        if not settings:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Truth meter not found for persona: {persona_id}"
-            )
-        
-        return models.TruthMeterResponse(
-            success=True,
-            persona_id=persona_id,
-            message="Truth meter settings retrieved successfully",
-            settings=settings
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving truth meter: {str(e)}"
-        )
-    finally:
-        agent.close() 
+  
