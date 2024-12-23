@@ -17,16 +17,12 @@ def get_agent_system() -> AgentSystem:
     
     try:
         agent = AgentSystem(
-            model_path=settings.MODEL_PATH,
             persona_config_path=settings.PERSONA_CONFIG_PATH,
-            db_url=settings.DATABASE_URL,
             redis_host=settings.REDIS_HOST,
             redis_port=settings.REDIS_PORT,
             cache_ttl=settings.REDIS_CACHE_TTL,
             flush_interval=settings.FLUSH_INTERVAL,
-            buffer_size=settings.BUFFER_SIZE,
-            n_ctx=settings.N_CTX,
-            n_threads=settings.N_THREADS
+            buffer_size=settings.BUFFER_SIZE
         )
         return agent
     except Exception as e:

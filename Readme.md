@@ -50,7 +50,6 @@ pip install -r requirements.txt
 
 ```env
 SWIFEY_MODEL_PATH=/path/to/llama/model.bin
-SWIFEY_DATABASE_URL=sqlite:///swifey.db
 SWIFEY_REDIS_HOST=localhost
 SWIFEY_REDIS_PORT=6379
 SWIFEY_LOG_LEVEL=INFO
@@ -290,7 +289,6 @@ Example persona data:
 | Variable            | Description              | Default                |
 | ------------------- | ------------------------ | ---------------------- |
 | SWIFEY_MODEL_PATH   | Path to LLaMA model file | models/llama-model.bin |
-| SWIFEY_DATABASE_URL | Database connection URL  | sqlite:///swifey.db    |
 | SWIFEY_REDIS_HOST   | Redis host               | localhost              |
 | SWIFEY_REDIS_PORT   | Redis port               | 6379                   |
 | SWIFEY_LOG_LEVEL    | Logging level            | INFO                   |

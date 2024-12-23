@@ -15,7 +15,6 @@ def setup_logging():
 def create_agent_system() -> AgentSystem:
     """Create and initialize the agent system"""
     return AgentSystem(
-        db_url=settings.DATABASE_URL,
         redis_host=settings.REDIS_HOST,
         redis_port=settings.REDIS_PORT,
         cache_ttl=settings.REDIS_CACHE_TTL,

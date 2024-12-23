@@ -12,7 +12,6 @@ services:
       - SWIFEY_REDIS_PORT=6379
     volumes:
       - ./models:/app/models
-      - ./swifey.db:/app/swifey.db
     depends_on:
       - redis
 
