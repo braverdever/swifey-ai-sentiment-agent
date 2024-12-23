@@ -3,7 +3,7 @@ import argparse
 from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api import embeddings
+from api.embeddings import router as embeddings_router
 from dotenv import load_dotenv
 import os
 
@@ -22,7 +22,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(embeddings.router, prefix="/api/v1", tags=["embeddings"])
+app.include_router(embeddings_router, prefix="/api/v1", tags=["embeddings"])
 
 @app.get("/")
 async def root():
