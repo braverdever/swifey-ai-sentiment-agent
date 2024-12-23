@@ -130,37 +130,6 @@ async def process_message(
     finally:
         agent.close()
 
-@router.post("/feedback", response_model=models.FeedbackResponse)
-async def submit_feedback(
-    request: models.FeedbackRequest,
-    agent: AgentSystem = Depends(get_agent_system)
-) -> models.FeedbackResponse:
-    """Submit feedback for a message."""
-    try:
-        agent.submit_feedback(
-            persona_id=request.persona_id,
-            message_type=request.message_type,
-            content=request.content,
-            feedback_score=request.feedback_score,
-            details=request.details,
-            conversation_id=request.conversation_id,
-            context=request.context
-        )
-        
-        return models.FeedbackResponse(
-            success=True,
-            persona_id=request.persona_id,
-            message="Feedback processed successfully"
-        )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing feedback: {str(e)}"
-        )
-    finally:
-        agent.close()
-
 @router.get("/health", response_model=models.HealthResponse)
 async def health_check(
     agent: AgentSystem = Depends(get_agent_system)

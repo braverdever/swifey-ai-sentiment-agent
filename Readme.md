@@ -220,16 +220,6 @@ response = agent.generate_response(
     context="First interaction"
 )
 
-# Submit feedback
-agent.submit_feedback(
-    persona_id="default_assistant",
-    message_type="greeting",
-    content="Hello, how are you?",
-    feedback_score=1.0,
-    details={"relevance": 1.0, "clarity": 1.0},
-    conversation_id="123"
-)
-
 # Clean up
 agent.close()
 ```

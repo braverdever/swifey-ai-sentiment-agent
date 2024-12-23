@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 import uuid
 
-from models.persona import Persona
 from db.supabase import get_supabase
 from models.llm_adapter import create_llm_adapter
 from config import settings
@@ -51,7 +50,7 @@ class AgentSystem:
         self.should_stop = threading.Event()
         self._start_background_threads()
 
-    def _load_personas(self) -> Dict[str, Persona]:
+    def _load_personas(self) -> Dict[str, Dict[str, Any]]:
         """Load persona configurations using Redis as a cache and Supabase as the source of truth."""
         try:
             cached_personas = self.redis_client.get('personas')
@@ -72,7 +71,7 @@ class AgentSystem:
                     'truth_index': agent['truth_index'] or 50,
                     'interaction_freq': agent['interaction_freq'] or 50
                 }
-                personas[agent['id']] = Persona(agent['id'], persona_config)
+                personas[agent['id']] = persona_config
 
             self.redis_client.setex('personas', 600, json.dumps(personas))
             logger.info("Fetched personas from Supabase and cached in Redis")
@@ -117,15 +116,15 @@ class AgentSystem:
             logger.error(f"No persona found for ID {persona_id}, using fallback analysis.")
             return self._generate_fallback_analysis(persona_id)
 
-        role = self._determine_role(persona.truth_index)
+        role = self._determine_role(persona['truth_index'])
         prompt = (
-            f"As {persona.name}, analyze this message:\n"
+            f"As {persona['name']}, analyze this message:\n"
             f"Context: {context}\n"
             f"Message: \"{message}\"\n\n"
             "Consider:\n"
-            f"1. Emotional response (from {persona.name}'s perspective)\n"
+            f"1. Emotional response (from {persona['name']}'s perspective)\n"
             "2. Key points and implications\n"
-            f"3. Appropriate response style based on: {persona.communication_style}\n"
+            "3. Appropriate response style\n"
             f"4. Role: {role}\n\n"
             "Provide analysis in JSON format with keys:\n"
             "- emotional_response\n"
@@ -157,19 +156,19 @@ class AgentSystem:
         if not analysis:
             analysis = self.analyze_message(message, persona_id, context)
 
-        truth_level = persona.truth_index / 100 if persona.truth_index else 0.5
-        role = self._determine_role(persona.truth_index)
+        truth_level = persona['truth_index'] / 100 if persona['truth_index'] else 0.5
+        role = self._determine_role(persona['truth_index'])
+
         prompt = (
-            f"As {persona.name}, generate a response:\n"
-            f"{persona.get_prompt_context()}\n"
+            f"As {persona['name']}, generate a response:\n"
             f"Chat Context: {context}\n"
             f"Analysis: {json.dumps(analysis)}\n"
             f"Truth Level: {truth_level}\n"
             f"Role: {role}\n\n"
             "Generate a natural response that:\n"
-            f"1. Reflects {persona.name}'s personality\n"
+            f"1. Reflects {persona['name']}'s personality\n"
             "2. Uses appropriate language patterns\n"
-            "3. Shows domain expertise\n"
+            "3. Shows expertise\n"
             "4. Maintains emotional consistency\n"
             f"5. Adjusts truthfulness to {truth_level:.2f} (where 1.0 is completely truthful)\n"
             "   - At lower truth levels, be more evasive or selective with information\n"
@@ -192,36 +191,6 @@ class AgentSystem:
                 'content': self._get_fallback_response(persona_id),
                 'truth_level': truth_level
             }
-
-    def submit_feedback(
-        self,
-        agent_id: str,
-        feedback_type: str,
-        feedback_score: float,
-        feedback_details: Dict[str, Any],
-        conversation_id: str
-    ):
-        """Submit feedback to Supabase and update the persona if applicable."""
-        feedback_data = {
-            'id': str(uuid.uuid4()),
-            'agent_id': agent_id,
-            'feedback_type': feedback_type,
-            'feedback_score': feedback_score,
-            'feedback_details': feedback_details,
-            'conversation_id': conversation_id,
-            'created_at': datetime.utcnow().isoformat()
-        }
-        try:
-            self.supabase.table('agent_feedback').insert(feedback_data).execute()
-            if agent_id in self.personas:
-                self.personas[agent_id].update_from_feedback({
-                    'overall_score': feedback_score,
-                    'feedback_type': feedback_type,
-                    **feedback_details
-                })
-        except Exception as e:
-            logger.error(f"Error submitting feedback: {e}")
-            self.feedback_buffer.put(feedback_data)
 
     def _process_feedback_buffer(self):
         """Process any pending feedback in the buffer."""
