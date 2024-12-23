@@ -86,6 +86,7 @@ async def process_chat(
                 context=full_context,
                 analysis=analysis
             )
+            
             response = response_data['content']
             truth_level = response_data['truth_level']
         
