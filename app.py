@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from api import routes, embeddings
+from api.chat import router as chat_router
+from api.embeddings import router as embeddings_router
+
 from config import settings
 from auth.middleware import auth_middleware
 
@@ -46,13 +48,13 @@ async def auth_middleware_handler(request: Request, call_next):
 
 # Include routes with proper tags
 app.include_router(
-    routes.router,
+    chat_router,
     prefix="/api/v1/chat",
     tags=["chat"]
 )
 
 app.include_router(
-    embeddings.router,
+    embeddings_router,
     prefix="/api/v1/embeddings",
     tags=["embeddings"]
 )
