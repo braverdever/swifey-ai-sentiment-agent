@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy the entire application with the correct structure
 COPY . .
 
+# Add the application directory to PYTHONPATH
+ENV PYTHONPATH=/app:$PYTHONPATH
+
 # Create a non-root user and set proper permissions
 RUN useradd -m appuser && \
     chown -R appuser:appuser /app && \
