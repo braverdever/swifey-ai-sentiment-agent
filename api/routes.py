@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 import uuid
 
 from core.agent_system import AgentSystem
-from api import models
+from models import api as models
 
 __version__ = "0.1.0"  # Define version locally for now
 
@@ -11,8 +11,6 @@ router = APIRouter()
 
 def get_agent_system() -> AgentSystem:
     """Dependency to get the agent system instance."""
-    # This would typically be initialized at startup and stored in a global state
-    # or database. For now, we'll create a new instance each time.
     from ..config import settings
     
     try:
@@ -39,7 +37,7 @@ def format_chat_context(messages: List[models.Message], max_messages: int = 10) 
         for msg in recent_messages
     ])
 
-@router.post("/chat", response_model=models.ChatResponse)
+@router.post("/conversation", response_model=models.ChatResponse)
 async def process_chat(
     request: models.ChatRequest,
     agent: AgentSystem = Depends(get_agent_system)
@@ -49,33 +47,26 @@ async def process_chat(
         conversation_id = request.conversation_id or str(uuid.uuid4())
         message_count = len(request.messages)
         
-        # Determine if we should respond based on frequency
         should_respond = message_count % request.frequency == 0
         
         response = None
         analysis = None
         
         if should_respond:
-            # Format recent messages as context
             chat_context = format_chat_context(
                 request.messages,
                 request.max_context_messages
             )
             
-            # Get the last message
             last_message = request.messages[-1].content
-            
-            # Combine chat context with any additional context
             full_context = f"{request.context}\n\nChat History:\n{chat_context}"
             
-            # Analyze the conversation
             analysis = agent.analyze_message(
                 message=last_message,
                 persona_id=request.persona_id,
                 context=full_context
             )
             
-            # Generate response
             response_data = agent.generate_response(
                 persona_id=request.persona_id,
                 message=last_message,
@@ -107,19 +98,16 @@ async def process_message(
     request: models.MessageRequest,
     agent: AgentSystem = Depends(get_agent_system)
 ) -> models.MessageResponse:
-    """Process a message and get a response from the agent."""
+    """Process a single message and get a response from the agent."""
     try:
-        # Generate conversation ID if not provided
         conversation_id = request.conversation_id or str(uuid.uuid4())
         
-        # Analyze message
         analysis = agent.analyze_message(
             message=request.message,
             persona_id=request.persona_id,
             context=request.context
         )
         
-        # Generate response
         response_data = agent.generate_response(
             persona_id=request.persona_id,
             message=request.message,
@@ -177,7 +165,7 @@ async def submit_feedback(
 async def health_check(
     agent: AgentSystem = Depends(get_agent_system)
 ) -> models.HealthResponse:
-    """Check the health status of the service."""
+    """Check the health status of the chat service."""
     try:
         personas_status = {
             persona_id: {
