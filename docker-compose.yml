@@ -13,7 +13,6 @@ services:
     volumes:
       - ./models:/app/models
       - ./swifey.db:/app/swifey.db
-      - clip_cache:/app/.cache/clip
     depends_on:
       - redis
 
@@ -27,4 +26,3 @@ services:
 
 volumes:
   redis_data:
-  clip_cache:

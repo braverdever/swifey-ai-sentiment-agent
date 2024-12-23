@@ -12,13 +12,10 @@ WORKDIR /app
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Create cache directory and pre-download CLIP model
-RUN mkdir -p /app/.cache/clip
-ENV CLIP_CACHE_DIR=/app/.cache/clip
-RUN python -c "import clip; clip.load('ViT-B/32')"
+# Install Python dependencies with PyTorch for CPU
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
@@ -37,4 +34,4 @@ USER appuser
 EXPOSE 8000
 
 # Command to run the application
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"] 
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
