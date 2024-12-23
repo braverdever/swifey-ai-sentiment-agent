@@ -1,11 +1,12 @@
-import uvicorn
+import os
+import uvicorn 
 import argparse
-from config import settings
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.embeddings import router as embeddings_router
+from api.embeddings import router as embeddings_router  # Changed from original import
+from config import settings
 from dotenv import load_dotenv
-import os
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,24 +30,10 @@ async def root():
     return {"message": "Swifey AI Agent API"}
 
 def main():
-    """Run the FastAPI server."""
     parser = argparse.ArgumentParser(description="Run the Swifey AI Agent API server")
-    parser.add_argument(
-        "--host",
-        default="0.0.0.0",
-        help="Host to run the server on"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port to run the server on"
-    )
-    parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for development"
-    )
+    parser.add_argument("--host", default="0.0.0.0", help="Host to run the server on")
+    parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
     
     args = parser.parse_args()
     
@@ -59,4 +46,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    main() 
+    main()
