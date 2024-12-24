@@ -29,6 +29,7 @@ class TextEmbedRequest(BaseModel):
     user_id: str
     agent_id: str
     embedding_type: str
+    data_type: Optional[str] = None
 
 class SimilarityResponse(BaseModel):
     message: str
