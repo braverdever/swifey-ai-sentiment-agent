@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 import uuid
 
-from db.supabase import get_supabase
-from models.llm_adapter import create_llm_adapter
-from config import settings
+from ..db.supabase import get_supabase
+from ..models.llm_adapter import create_llm_adapter
+from ..config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
