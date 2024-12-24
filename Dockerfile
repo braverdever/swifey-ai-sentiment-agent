@@ -5,7 +5,7 @@ build-essential \
 git \
 && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /
+WORKDIR /app
 
 COPY requirements.txt .
 
@@ -15,7 +15,7 @@ pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV PYTHONPATH=/
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 
