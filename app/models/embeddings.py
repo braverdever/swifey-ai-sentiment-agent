@@ -21,67 +21,203 @@ class EmbeddingManager:
         self.supabase: Client = create_client(url, key)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
-    
-    async def create_embeddings(
+
+    async def fetch_profile_photos(self, user_id: str) -> List[str]:
+        """Fetch photo paths from the profiles table."""
+        try:
+            response = self.supabase.table('profiles') \
+                .select('photos') \
+                .eq('id', user_id) \
+                .single() \
+                .execute()
+            
+            if response.data and 'photos' in response.data:
+                return response.data['photos']
+            return []
+        except Exception as e:
+            print(f"Error fetching profile photos: {str(e)}")
+            return []
+
+    async def fetch_image(self, image_path: str) -> Optional[bytes]:
+        """Fetch image data from storage."""
+        try:
+            response = self.supabase.storage.from_('photos').download(image_path)
+            return response
+        except Exception as e:
+            print(f"Error fetching image {image_path}: {str(e)}")
+            return None
+
+    async def sync_profile_embeddings(
         self,
-        items: List[Union[bytes, str]],  
         user_id: str,
-        agent_id: str,
+    ) -> Dict[str, Any]:
+        """Sync embeddings with current profile photos, creating new ones and deleting old ones."""
+        try:
+            print(f"Starting embedding sync for user {user_id}...")
+            
+            current_photo_paths = await self.fetch_profile_photos(user_id)
+            if not current_photo_paths:
+                print("No photos found in profile")
+                return {
+                    "photos_total": 0,
+                    "embeddings_deleted": 0,
+                    "embeddings_created": 0,
+                    "status": "success"
+                }
+                
+            print(f"Found {len(current_photo_paths)} photos in profile")
+
+            existing_embeddings = self.supabase.table("embeddings") \
+                .select('*') \
+                .eq('user_id', user_id) \
+                .like('embedding_type', 'photo_%') \
+                .execute()
+            
+            existing_paths = {
+                embed['photo_path']: embed
+                for embed in existing_embeddings.data
+                if embed.get('photo_path')
+            }
+
+            print(f"Found {len(existing_paths)} existing embeddings")
+
+            paths_to_delete = set(existing_paths.keys()) - set(current_photo_paths)
+            if paths_to_delete:
+                print(f"Deleting embeddings for {len(paths_to_delete)} removed photos...")
+                embedding_types_to_delete = [
+                    existing_paths[path]['embedding_type'] for path in paths_to_delete
+                ]
+                
+                try:
+                    delete_result = await self.delete_embeddings(
+                        user_id=user_id,
+                        embedding_types=embedding_types_to_delete
+                    )
+                    print(f"Deleted {len(delete_result) if delete_result else 0} embeddings")
+                except Exception as delete_error:
+                    print(f"Error deleting embeddings: {str(delete_error)}")
+
+            successful_creations = 0
+            
+            print(f"Processing {len(current_photo_paths)} photos...")
+            for idx, photo_path in enumerate(current_photo_paths):
+                try:
+                    print(f"Processing photo {idx + 1}/{len(current_photo_paths)}: {photo_path}")
+                    
+                    image_data = await self.fetch_image(photo_path)
+                    if not image_data:
+                        print(f"Skipping photo {photo_path} - failed to fetch data")
+                        continue
+                    
+                    image = Image.open(BytesIO(image_data))
+                    image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+                    
+                    with torch.no_grad():
+                        features = self.model.encode_image(image_input)
+                        embedding = features.cpu().numpy().flatten().tolist()
+                    
+                    embedding_type = f"photo_{idx}"  # Use unique embedding type for each photo
+                    
+                    await self.delete_embeddings(
+                        user_id=user_id,
+                        embedding_types=[embedding_type]
+                    )
+                    
+                    embedding_record = {
+                        "user_id": user_id,
+                        "embedding": embedding,
+                        "embedding_type": embedding_type,
+                        "data_type": "image",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "photo_path": photo_path
+                    }
+                    
+                    print(f"Storing/updating embedding for {embedding_type}")
+                    result = self.supabase.table("embeddings").upsert(
+                        embedding_record
+                    ).execute()
+                    
+                    if result.data:
+                        successful_creations += 1
+                        print(f"Successfully created embedding {embedding_type}")
+                    
+                except Exception as e:
+                    print(f"Error processing photo {idx}: {str(e)}")
+                    continue
+            
+            return {
+                "photos_total": len(current_photo_paths),
+                "embeddings_deleted": len(paths_to_delete),
+                "embeddings_created": successful_creations,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            print(f"Error in sync_profile_embeddings: {str(e)}")
+            raise Exception(f"Failed to sync profile embeddings: {str(e)}")
+    
+    async def delete_embeddings(
+        self,
+        user_id: str,
+        embedding_types: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Delete specific embeddings for a user."""
+        try:
+            result = self.supabase.table("embeddings") \
+                .delete() \
+                .eq('user_id', user_id) \
+                .in_('embedding_type', embedding_types) \
+                .execute()
+            
+            return result.data
+        except Exception as e:
+            print(f"Error deleting embeddings: {str(e)}")
+            return []
+    
+    async def create_text_embeddings(
+        self,
+        items: List[str],  
+        user_id: str,
         embedding_type: str,
         data_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Create and store CLIP embeddings for multiple items"""
+        """Create or update CLIP embeddings for multiple text items"""
         try:
-            print("Starting embedding creation...")
+            print("Starting text embedding creation/update...")
             embeddings_data = []
             
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
-                if isinstance(item, bytes): 
-                    try:
-                        print("Opening image from bytes...")
-                        image = Image.open(BytesIO(item))
-                        print(f"Image opened successfully: size={image.size}, mode={image.mode}")
-                        
-                        print("Preprocessing image...")
-                        image_input = self.preprocess(image).unsqueeze(0).to(self.device)
-                        
-                        print("Generating embedding...")
-                        with torch.no_grad():
-                            features = self.model.encode_image(image_input)
-                            embedding = features.cpu().numpy().flatten().tolist()
-                        print("Embedding generated successfully")
-                        
-                    except Exception as e:
-                        print(f"Error processing image: {str(e)}")
-                        raise Exception(f"Error processing image: {str(e)}")
-                else:  # Text
-                    # Process text and generate embedding
-                    text_input = clip.tokenize([item]).to(self.device)
-                        
-                    with torch.no_grad():
-                        features = self.model.encode_text(text_input)
-                        embedding = features.cpu().numpy().flatten().tolist()
-                        
                 
-                embeddings_data.append({
+                text_input = clip.tokenize([item]).to(self.device)
+                    
+                with torch.no_grad():
+                    features = self.model.encode_text(text_input)
+                    embedding = features.cpu().numpy().flatten().tolist()
+                
+                embedding_record = {
                     "user_id": user_id,
-                    "agent_id": agent_id,
                     "embedding": embedding,
                     "embedding_type": embedding_type,
                     "data_type": data_type,
                     "created_at": datetime.utcnow().isoformat()
-                })
+                }
+                embeddings_data.append(embedding_record)
             
-            print("Storing embeddings in Supabase...")
-            result = self.supabase.table("embeddings").insert(embeddings_data).execute()
-            print("Embeddings stored successfully")
+            if not embeddings_data:
+                raise Exception("No valid embeddings were generated")
+            
+            print(f"Storing/updating {len(embeddings_data)} text embeddings in Supabase...")
+            result = self.supabase.table("embeddings").upsert(
+                embedding_record
+            ).execute()
+            print("Text embeddings stored/updated successfully")
             return result.data
             
         except Exception as e:
-            print(f"Error in create_embeddings: {str(e)}")
-            raise Exception(f"Failed to create embeddings: {str(e)}")
-        
+            print(f"Error in create_text_embeddings: {str(e)}")
+            raise Exception(f"Failed to create/update text embeddings: {str(e)}")
+
     async def get_profile_data(self, profile_id: str) -> Optional[Dict]:
         """Fetch profile data from Supabase."""
         try:
