@@ -302,13 +302,9 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                # Build base query
                 query = self.supabase.table('embeddings').select('*')
                 
-                # Add required agent_id filter
                 query = query.eq('agent_id', agent_id)
-                if user_id:
-                    query = query.eq('user_id', user_id)
                 
                 responses = query.execute()
                 total_records = len(responses.data) if responses.data else 0
@@ -324,18 +320,15 @@ class EmbeddingManager:
                 print(f"Database query error: {str(db_error)}")
                 raise Exception(f"Database query failed: {str(db_error)}")
 
-            # Calculate similarities and filter results
             similarities = []
             for resp in responses.data:
                 try:
                     if resp['user_id'] == user_id:
                         continue
 
-                    # Get embedding and handle string format if needed
                     embedding = resp.get('embedding')
                     if isinstance(embedding, str):
                         try:
-                            # Try parsing as JSON string
                             embedding = json.loads(embedding)
                         except json.JSONDecodeError:
                             # Try parsing as string representation of list
