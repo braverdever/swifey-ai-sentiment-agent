@@ -9,6 +9,7 @@ from supabase import create_client, Client
 from io import BytesIO
 import json
 import requests
+import ast
 
 
 class EmbeddingManager:
@@ -282,6 +283,7 @@ class EmbeddingManager:
     async def search_similar_responses(
         self,
         response: str,
+        user_id: str,
         agent_id: str,
         per_page: int = 10,
         filters: Optional[Dict] = None,
@@ -292,7 +294,6 @@ class EmbeddingManager:
             print(f"Query text: {response}")
             print(f"Filters: {filters}")
             
-            # Get embeddings for the query text
             text_input = clip.tokenize([response]).to(self.device)
             with torch.no_grad():
                 text_features = self.model.encode_text(text_input)
@@ -301,57 +302,43 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                # Check total records first
-                all_data = self.supabase.table('embeddings').select('*').execute()
-                print(f"Total records in embeddings table: {len(all_data.data)}")
+                # Build base query
+                query = self.supabase.table('embeddings').select('*')
                 
-                # Build query with filters
-                final_query = self.supabase.table('embeddings').select('*')
+                # Add required agent_id filter
+                query = query.eq('agent_id', agent_id)
+                if user_id:
+                    query = query.eq('user_id', user_id)
                 
-                # Add agent_id filter
-                final_query = final_query.eq('agent_id', agent_id)
+                responses = query.execute()
+                total_records = len(responses.data) if responses.data else 0
+                print(f"Found {total_records} records after filtering")
                 
-                # # Add embedding_type filter if not specified
-                # if not filters or 'embedding_type' not in filters:
-                #     final_query = final_query.eq('embedding_type', 'text')
-                
-                # Add any additional filters
-                if filters:
-                    for key, value in filters.items():
-                        final_query = final_query.eq(key, value)
-                
-                # Execute final query
-                responses = final_query.execute()
-                print(f"Final filtered records: {len(responses.data)}")
-                
-                # Debug: Print sample record structure
-                if responses.data:
-                    print("Sample record structure:")
+                if responses.data and total_records > 0:
                     sample_record = responses.data[0]
-                    print(f"Keys available: {sample_record.keys()}")
+                    print(f"Sample record keys: {sample_record.keys()}")
                     if 'embedding' in sample_record:
                         print(f"Embedding type: {type(sample_record['embedding'])}")
-                        if isinstance(sample_record['embedding'], str):
-                            print("Embedding is stored as string, needs parsing")
-                
+
             except Exception as db_error:
                 print(f"Database query error: {str(db_error)}")
                 raise Exception(f"Database query failed: {str(db_error)}")
 
-            # Calculate similarities
+            # Calculate similarities and filter results
             similarities = []
             for resp in responses.data:
                 try:
+                    if resp['user_id'] == user_id:
+                        continue
+
                     # Get embedding and handle string format if needed
                     embedding = resp.get('embedding')
                     if isinstance(embedding, str):
                         try:
                             # Try parsing as JSON string
-                            import json
                             embedding = json.loads(embedding)
                         except json.JSONDecodeError:
-                            # If not JSON, try parsing as string representation of list
-                            import ast
+                            # Try parsing as string representation of list
                             embedding = ast.literal_eval(embedding)
                     
                     if not embedding or not isinstance(embedding, (list, np.ndarray)):
@@ -366,26 +353,26 @@ class EmbeddingManager:
                         print(f"Skipping record {resp.get('user_id')} - shape mismatch: {query_array.shape} vs {resp_array.shape}")
                         continue
 
-                    # Calculate similarity
+                    # Calculate cosine similarity
                     similarity = float(np.dot(query_array, resp_array) / 
                                     (np.linalg.norm(query_array) * np.linalg.norm(resp_array)))
 
-                    similarities.append({
-                        'response_id': resp['user_id'],
-                        'similarity_score': similarity,
-                        'metadata': {
-                            'userId': resp['user_id'],
-                            'embedding_type': resp.get('embedding_type', ''),
-                            'data_type': resp.get('data_type', ''),
-                            'timestamp': resp['created_at'],
-                            'text': resp.get('text', '')
-                        },
-                        'relative_score': 0.0
-                    })
-                    print(f"Added similarity score {similarity:.4f} for user {resp['user_id']}")
+                    if similarity > 0.9:
+                        similarities.append({
+                            'response_id': resp['user_id'],
+                            'similarity_score': similarity,
+                            'metadata': {
+                                'userId': resp['user_id'],
+                                'embedding_type': resp.get('embedding_type', ''),
+                                'data_type': resp.get('data_type', ''),
+                                'timestamp': resp['created_at'],
+                                'text': resp.get('text', '')
+                            },
+                            'relative_score': 0.0
+                        })
+                        print(f"Added similarity score {similarity:.4f} for user {resp['user_id']}")
                 except Exception as e:
                     print(f"Error processing record {resp.get('user_id')}: {str(e)}")
-                    print(f"Embedding value: {embedding[:100] if embedding else None}...")
                     continue
 
             # Process results
@@ -393,13 +380,11 @@ class EmbeddingManager:
                 max_score = max(s['similarity_score'] for s in similarities)
                 mean_score = sum(s['similarity_score'] for s in similarities) / len(similarities)
                 print(f"Max similarity: {max_score:.4f}, Mean similarity: {mean_score:.4f}")
-
-                # Calculate relative scores and filter
+                
                 results = []
                 for s in similarities:
                     s['relative_score'] = float(s['similarity_score'] / max_score if max_score > 0 else 0.0)
-                    if s['relative_score'] >= 0.5:  # Lowered threshold for better recall
-                        results.append(s)
+                    results.append(s)
 
                 # Sort and limit results
                 results.sort(key=lambda x: x['similarity_score'], reverse=True)
@@ -419,8 +404,8 @@ class EmbeddingManager:
                     'mean_similarity': float(mean_score),
                     'query_response': response,
                     'debug_info': {
-                        'total_records': len(all_data.data),
-                        'final_filtered': len(responses.data)
+                        'total_records': total_records,
+                        'final_filtered': len(similarities)
                     }
                 }
             }
@@ -428,7 +413,7 @@ class EmbeddingManager:
         except Exception as e:
             print(f"Error in search_similar_responses: {str(e)}")
             raise Exception(f"Failed to search similar responses: {str(e)}")
-                
+                    
     async def generate_enhanced_similarity_message(
         self, 
         profile1_id: str, 

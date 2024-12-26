@@ -1,7 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
-from ..models.embeddings import EmbeddingManager  # Import from models
+from ..models.embeddings import EmbeddingManager  
 import os
 from datetime import datetime
 
@@ -11,6 +11,7 @@ embedding_manager = EmbeddingManager()
 class SearchSimilarRequest(BaseModel):
     agent_id: str = Field(..., description="ID of the agent")
     response: str = Field(..., description="Response text to search for similarities")
+    user_id: str = Field(..., description="ID of the user")
     per_page: int = Field(default=10, ge=1, le=100, description="Number of results per page")
     filters: Optional[Dict] = Field(default=None, description="Additional filters to apply")
 
@@ -55,13 +56,11 @@ async def search_similar_responses(request: SearchSimilarRequest):
     try:
         print(f"Received search request for agent_id: {request.agent_id}")
         print(f"Query response: {request.response}")
-        
-        if not request.filters:
-            request.filters = {"embedding_type": "text"}
-        
+                
         result = await embedding_manager.search_similar_responses(
             response=request.response,
             agent_id=request.agent_id,
+            user_id=request.user_id,
             per_page=request.per_page,
             filters=request.filters
         )
