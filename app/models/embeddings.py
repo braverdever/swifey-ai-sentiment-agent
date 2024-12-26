@@ -178,6 +178,7 @@ class EmbeddingManager:
         self,
         items: List[str],  
         user_id: str,
+        agent_id: str,
         embedding_type: str,
         data_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -197,6 +198,7 @@ class EmbeddingManager:
                 
                 embedding_record = {
                     "user_id": user_id,
+                    "agent_id": agent_id,
                     "embedding": embedding,
                     "embedding_type": embedding_type,
                     "data_type": data_type,
