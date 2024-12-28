@@ -8,6 +8,7 @@ import uvicorn
 
 from .api.chat import router as chat_router
 from .api.embeddings import router as embeddings_router
+from .api.websocket import router as websocket_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -45,6 +46,11 @@ def get_application() -> FastAPI:
         embeddings_router,
         prefix="/api/v1/embeddings",
         tags=["embeddings"]
+    )
+    app.include_router(
+        websocket_router,
+        prefix="/api/v1/ws",
+        tags=["websocket"]
     )
 
     @app.exception_handler(RequestValidationError)
