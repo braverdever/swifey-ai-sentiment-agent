@@ -7,7 +7,7 @@ from starlette.requests import Request
 from ..core.agent_system import AgentSystem
 from ..models import api as models
 
-__version__ = "0.1.0"  # Define version locally for now
+__version__ = "0.1.0"
 
 router = APIRouter()
 
@@ -17,7 +17,6 @@ def get_agent_system() -> AgentSystem:
     
     try:
         agent = AgentSystem(
-            persona_config_path=settings.PERSONA_CONFIG_PATH,
             redis_host=settings.REDIS_HOST,
             redis_port=settings.REDIS_PORT,
             cache_ttl=settings.REDIS_CACHE_TTL,
@@ -39,7 +38,7 @@ def format_chat_context(messages: List[models.Message], max_messages: int = 10) 
         for msg in recent_messages
     ])
 
-@router.post("/conversation", response_model=models.ChatResponse)
+@router.post("/chat", response_model=models.ChatResponse)
 async def process_chat(
     request: models.ChatRequest,
     agent: AgentSystem = Depends(get_agent_system)
@@ -95,39 +94,36 @@ async def process_chat(
     finally:
         agent.close()
 
-@router.post("/message", response_model=models.MessageResponse)
-async def process_message(
-    request: models.MessageRequest,
+@router.post("/relationship-test", response_model=models.TestResponse)
+async def generate_test(
+    request: models.TestRequest,
     agent: AgentSystem = Depends(get_agent_system)
-) -> models.MessageResponse:
-    """Process a single message and get a response from the agent."""
+) -> models.TestResponse:
+    """Generate a relationship test based on conversation history."""
     try:
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        
         analysis = agent.analyze_message(
-            message=request.message,
+            message=request.last_message,
             persona_id=request.persona_id,
             context=request.context
         )
         
-        response_data = agent.generate_response(
+        test_question = agent.generate_test_question(
             persona_id=request.persona_id,
-            message=request.message,
-            context=request.context,
-            analysis=analysis
+            analysis=analysis,
+            context=request.context
         )
         
-        return models.MessageResponse(
-            response=response_data['content'],
+        return models.TestResponse(
+            question=test_question,
             analysis=analysis,
             persona_id=request.persona_id,
-            conversation_id=conversation_id
+            conversation_id=request.conversation_id
         )
         
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing message: {str(e)}"
+            detail=f"Error generating test: {str(e)}"
         )
     finally:
         agent.close()
@@ -160,4 +156,3 @@ async def health_check(
         )
     finally:
         agent.close()
-  
