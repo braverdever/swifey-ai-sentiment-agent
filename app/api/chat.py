@@ -94,11 +94,11 @@ async def process_chat(
     finally:
         agent.close()
 
-@router.post("/relationship-test", response_model=models.TestResponse)
+@router.post("/relationship-test", response_model=models.ChatResponse)
 async def generate_test(
-    request: models.TestRequest,
+    request: models.ChatRequest,
     agent: AgentSystem = Depends(get_agent_system)
-) -> models.TestResponse:
+) -> models.ChatResponse:
     """Generate a relationship test based on conversation history."""
     try:
         analysis = agent.analyze_message(
