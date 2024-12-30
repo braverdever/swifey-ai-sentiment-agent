@@ -1,15 +1,17 @@
+# app/core/agent_system.py
 import json
 import redis
 import hashlib
-import threading
 import queue
 import logging
-from datetime import datetime
-from typing import Dict, Any, Optional
 import random
-import uuid
+import threading
+from typing import Dict, Any, Optional, List
+from datetime import datetime
 
+from ..models.api import Message
 from ..models.llm_adapter import create_llm_adapter
+from .truth_bomb import TruthBombAnalyzer
 from ..config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -36,16 +38,6 @@ class AgentSystem:
                 "What mutual goal excites you both the most?",
                 "Which of your differences has led to the most growth?"
             ]
-        },
-        "connection_tester": {
-            "name": "Bond Analyst",
-            "truth_index": 0.5,
-            "personality_traits": ["curious", "observant", "strategic"],
-            "question_patterns": [
-                "What would your partner say is your biggest relationship fear?",
-                "How do you handle moments when you feel disconnected?",
-                "What unspoken expectations do you have for each other?"
-            ]
         }
     }
 
@@ -57,6 +49,7 @@ class AgentSystem:
         flush_interval: int = 300,
         buffer_size: int = 1000
     ):
+        # Initialize core components
         self.llm = create_llm_adapter(settings.LLM_CONFIG)
         self.redis_client = redis.Redis(
             host=redis_host,
@@ -66,27 +59,104 @@ class AgentSystem:
         self.cache_ttl = cache_ttl
         self.personas = self._load_personas()
         
+        # Initialize truth bomb analyzer
+        self.truth_analyzer = TruthBombAnalyzer()
+        
+        # Initialize feedback system
         self.feedback_buffer = queue.Queue(maxsize=buffer_size)
         self.flush_interval = flush_interval
         self.should_stop = threading.Event()
         
+        # Start background processes
         self._start_background_threads()
 
+    def analyze_conversation(self, messages: List[Message]) -> Dict[str, Any]:
+        """Analyze conversation and generate appropriate truth bombs"""
+        # Convert Message objects to dict format
+        msg_list = [{
+            "content": msg.content,
+            "sender": msg.sender,
+            "timestamp": msg.timestamp,
+            "metadata": msg.metadata
+        } for msg in messages]
+        
+        analyses = []
+        
+        # Length prediction
+        length_analysis = self.truth_analyzer.analyze_conversation_length(msg_list)
+        if length_analysis:
+            analyses.append(length_analysis)
+        
+        # Date probability
+        date_analysis = self.truth_analyzer.analyze_date_probability(msg_list)
+        if date_analysis:
+            analyses.append(date_analysis)
+        
+        # Safety concerns
+        safety_analysis = self.truth_analyzer.analyze_safety_concerns(msg_list)
+        if safety_analysis:
+            analyses.append(safety_analysis)
+        
+        # Flirting amplifier
+        flirt_analysis = self.truth_analyzer.generate_flirting_amplifier(msg_list)
+        if flirt_analysis:
+            analyses.append(flirt_analysis)
+        
+        # Select most relevant truth bomb
+        selected_analysis = self._select_best_analysis(analyses)
+        
+        return {
+            "truth_bomb": selected_analysis["prediction"] if selected_analysis else None,
+            "confidence": selected_analysis.get("confidence", 0.0) if selected_analysis else 0.0,
+            "analysis_type": selected_analysis.get("type") if selected_analysis else None,
+            "all_analyses": analyses
+        }
+    
+    def _select_best_analysis(self, analyses: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Select the most relevant analysis based on confidence and type"""
+        if not analyses:
+            return None
+            
+        # Prioritize safety concerns
+        safety_analyses = [a for a in analyses if a["type"] == "safety" 
+                         and a.get("risk_level", 0) > 0.7]
+        if safety_analyses:
+            return max(safety_analyses, key=lambda x: x.get("confidence", 0))
+        
+        # Otherwise select based on confidence and relevance
+        weighted_analyses = []
+        for analysis in analyses:
+            base_weight = analysis.get("confidence", 0)
+            type_weight = {
+                "date_probability": 1.2,
+                "flirting_amplifier": 1.1,
+                "conversation_length": 0.9
+            }.get(analysis["type"], 1.0)
+            
+            weighted_analyses.append((analysis, base_weight * type_weight))
+        
+        if weighted_analyses:
+            return max(weighted_analyses, key=lambda x: x[1])[0]
+        
+        return None
+
+
     def _load_personas(self) -> Dict[str, Any]:
-        """Load persona configurations from Redis cache or initialize defaults"""
         try:
             cached_personas = self.redis_client.get('dating_personas')
+            logger.info(f"Cached personas: {cached_personas}") 
             if cached_personas:
                 return json.loads(cached_personas)
 
             personas = {
                 persona_type: {
                     **config,
-                    "id": str(uuid.uuid4()),
+                    "type": persona_type,
                     "created_at": datetime.now().isoformat()
                 }
                 for persona_type, config in self._PERSONA_TYPES.items()
             }
+            logger.info(f"Created new personas: {personas}")
             
             self.redis_client.setex('dating_personas', 600, json.dumps(personas))
             return personas
@@ -94,6 +164,33 @@ class AgentSystem:
         except Exception as e:
             logger.error(f"Error loading personas: {e}")
             return {}
+    
+    def _select_best_analysis(self, analyses: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Select the most relevant analysis based on confidence and type"""
+        if not analyses:
+            return None
+            
+        safety_analyses = [a for a in analyses if a["type"] == "safety" 
+                         and a.get("risk_level", 0) > 0.7]
+        if safety_analyses:
+            return max(safety_analyses, key=lambda x: x.get("confidence", 0))
+        
+        weighted_analyses = []
+        for analysis in analyses:
+            base_weight = analysis.get("confidence", 0)
+            type_weight = {
+                "date_probability": 1.2,
+                "flirting_amplifier": 1.1,
+                "conversation_length": 0.9
+            }.get(analysis["type"], 1.0)
+            
+            weighted_analyses.append((analysis, base_weight * type_weight))
+        
+        if weighted_analyses:
+            return max(weighted_analyses, key=lambda x: x[1])[0]
+        
+        return None
+
 
     def analyze_message(
         self,
@@ -108,10 +205,7 @@ class AgentSystem:
         if cached_analysis:
             return json.loads(cached_analysis)
             
-        persona = next(
-            (p for p in self.personas.values() if p["id"] == persona_id),
-            None
-        )
+        persona = self.personas.get(persona_id)
         
         if not persona:
             return self._generate_fallback_analysis()
@@ -119,16 +213,35 @@ class AgentSystem:
         prompt = self._create_analysis_prompt(message, persona, context)
         
         try:
-            response = self.llm(prompt, max_tokens=300, temperature=0.2)
-            analysis = json.loads(response['choices'][0]['text'].strip())
+            response = self.llm.generate(prompt, max_tokens=300, temperature=0.2)
+            logger.info(f"Raw LLM response: {response}")
             
-            self.redis_client.setex(cache_key, self.cache_ttl, json.dumps(analysis))
-            return analysis
-            
+            try:
+                import re
+                json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                    analysis = json.loads(json_str)
+                else:
+                    json_match = re.search(r'{\s*"emotional_tone".*?}(?=\n|$)', response, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        analysis = json.loads(json_str)
+                    else:
+                        logger.error("No JSON found in response")
+                        return self._generate_fallback_analysis()
+                        
+                self.redis_client.setex(cache_key, self.cache_ttl, json.dumps(analysis))
+                return analysis
+                
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.error(f"Failed to parse LLM response: {e}")
+                return self._generate_fallback_analysis()
+                
         except Exception as e:
             logger.error(f"Analysis generation error: {e}")
             return self._generate_fallback_analysis()
-
+    
     def generate_response(
         self,
         persona_id: str,
@@ -140,10 +253,7 @@ class AgentSystem:
         if not analysis:
             analysis = self.analyze_message(message, persona_id, context)
             
-        persona = next(
-            (p for p in self.personas.values() if p["id"] == persona_id),
-            None
-        )
+        persona = self.personas.get(persona_id)
         
         if not persona:
             return {"content": "I need more context to provide a meaningful response."}
@@ -151,12 +261,13 @@ class AgentSystem:
         prompt = self._create_response_prompt(message, persona, context, analysis)
         
         try:
-            response = self.llm(prompt, max_tokens=200, temperature=0.7)
-            return {"content": response['choices'][0]['text'].strip()}
+            response = self.llm.generate(prompt, max_tokens=200, temperature=0.7)
+            response_text = response['message']['content'] if isinstance(response, dict) else response
+            return {"content": response_text.strip()}
         except Exception as e:
             logger.error(f"Response generation error: {e}")
             return {"content": self._get_fallback_response()}
-
+    
     def generate_test_question(
         self,
         persona_id: str,
@@ -164,10 +275,7 @@ class AgentSystem:
         context: str
     ) -> str:
         """Generate a relationship test question"""
-        persona = next(
-            (p for p in self.personas.values() if p["id"] == persona_id),
-            None
-        )
+        persona = self.personas.get(persona_id)
         
         if not persona:
             return self._get_fallback_question()
@@ -175,12 +283,38 @@ class AgentSystem:
         prompt = self._create_test_prompt(persona, analysis, context)
         
         try:
-            response = self.llm(prompt, max_tokens=100, temperature=0.8)
+            response = self.llm.generate(prompt, max_tokens=100, temperature=0.8)
             return response['choices'][0]['text'].strip()
         except Exception as e:
             logger.error(f"Test question generation error: {e}")
             return self._get_fallback_question()
+        
+    def _create_test_prompt(
+        self,
+        persona: Dict[str, Any],
+        analysis: Dict[str, Any],
+        context: str
+    ) -> str:
+        """Create prompt for generating relationship test questions"""
+        return f"""As {persona['name']}, generate a meaningful relationship-focused question.
 
+    Context: {context}
+    Analysis: {json.dumps(analysis)}
+
+    Your traits: {', '.join(persona['personality_traits'])}
+    Truth level: {persona['truth_index']}
+
+    Use your persona's style to generate a question that:
+    1. Matches your personality traits ({', '.join(persona['personality_traits'])})
+    2. Explores the themes from the analysis
+    3. Encourages honest self-reflection
+    4. Is appropriate for the current relationship context
+
+    Choose from or be inspired by these question patterns:
+    {json.dumps(persona['question_patterns'], indent=2)}
+
+    Return a single, clear question without any additional commentary or text."""
+    
     def _create_analysis_prompt(
         self,
         message: str,
@@ -194,7 +328,7 @@ Message: {message}
 Context: {context}
 
 Consider:
-1. Emotional undertones
+1. Emotional undertones 
 2. Relationship dynamics
 3. Potential concerns or growth areas
 4. Truth level: {persona['truth_index']}
@@ -220,46 +354,47 @@ Return analysis in JSON format with the following structure:
         analysis: Dict[str, Any]
     ) -> str:
         """Create prompt for generating response"""
-        return f"""As {persona['name']}, generate a response that explores relationship dynamics:
+        return f"""As {persona['name']}, respond to the following message. Your response should be conversational, concise (2-3 sentences), and reflect your personality as {', '.join(persona['personality_traits'])}.
 
-Message: {message}
-Context: {context}
-Analysis: {json.dumps(analysis)}
+    Message: {message}
+    Context: {context}
+    Analysis: {json.dumps(analysis)}
 
-Your personality traits: {', '.join(persona['personality_traits'])}
-Truth level: {persona['truth_index']}
+    Your truth level is {persona['truth_index']}. Keep your response natural and engaging, focusing on building rapport and encouraging open discussion."""
 
-Generate a response that:
-1. Reflects your personality traits
-2. Addresses key relationship dynamics
-3. Encourages deeper reflection
-4. Maintains appropriate emotional tone
-5. Considers the truth level in your directness"""
-
-    def _create_test_prompt(
+    def generate_response(
         self,
-        persona: Dict[str, Any],
-        analysis: Dict[str, Any],
-        context: str
-    ) -> str:
-        """Create prompt for generating test questions"""
-        return f"""As {persona['name']}, generate a probing relationship question:
-
-Context: {context}
-Analysis: {json.dumps(analysis)}
-
-Your traits: {', '.join(persona['personality_traits'])}
-Truth level: {persona['truth_index']}
-
-Generate a single, powerful question that:
-1. Tests the relationship's strength
-2. Encourages honest reflection
-3. Reveals hidden dynamics
-4. Matches your personality
-5. Aligns with the current context
-
-Question should be direct and standalone, without any additional text."""
-
+        persona_id: str,
+        message: str,
+        context: str,
+        analysis: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, str]:
+        """Generate a relationship-focused response"""
+        if not analysis:
+            analysis = self.analyze_message(message, persona_id, context)
+            
+        persona = self.personas.get(persona_id)
+        
+        if not persona:
+            return {"content": "I need more context to provide a meaningful response."}
+            
+        prompt = self._create_response_prompt(message, persona, context, analysis)
+        
+        try:
+            response = self.llm.generate(prompt, max_tokens=150, temperature=0.7) 
+            response_text = response['message']['content'] if isinstance(response, dict) else response
+            
+            if "This response:" in response_text:
+                response_text = response_text.split("This response:")[0]
+                
+            if not response_text.rstrip().endswith(('.', '!', '?')):
+                response_text = '. '.join(response_text.split('.')[:-1]) + '.'
+                
+            return {"content": response_text.strip()}
+        except Exception as e:
+            logger.error(f"Response generation error: {e}")
+            return {"content": self._get_fallback_response()}
+    
     def _generate_fallback_analysis(self) -> Dict[str, Any]:
         """Generate fallback analysis when normal analysis fails"""
         return {
@@ -315,15 +450,12 @@ Question should be direct and standalone, without any additional text."""
                     feedback_batch.append(feedback)
 
                 if feedback_batch:
-                    # Process the feedback batch
                     for feedback in feedback_batch:
                         self._update_persona_metrics(feedback)
                     
-                    # Wait for the next processing interval
                     self.should_stop.wait(self.flush_interval)
             except Exception as e:
                 logger.error(f"Error processing feedback: {e}")
-                # Put failed items back in the queue
                 for feedback in feedback_batch:
                     try:
                         self.feedback_buffer.put(feedback)
@@ -339,13 +471,11 @@ Question should be direct and standalone, without any additional text."""
 
             persona = self.personas[persona_id]
             
-            # Update success metrics
             if 'success_score' in feedback:
                 current_score = persona.get('success_score', 0.5)
                 new_score = (current_score * 0.9) + (feedback['success_score'] * 0.1)
                 persona['success_score'] = new_score
 
-            # Update question patterns if feedback is positive
             if (
                 'question' in feedback 
                 and 'success_score' in feedback 
@@ -353,7 +483,6 @@ Question should be direct and standalone, without any additional text."""
             ):
                 self._add_successful_question(persona_id, feedback['question'])
 
-            # Cache updated persona
             self._update_persona_cache(persona_id, persona)
 
         except Exception as e:

@@ -15,6 +15,13 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, description="Conversation identifier")
     frequency: int = Field(default=3, description="Number of messages to wait before generating a response")
     max_context_messages: int = Field(default=10, description="Maximum number of previous messages to consider")
+    last_message: Optional[str] = None  
+
+class TestResponse(BaseModel):
+    question: str
+    analysis: Optional[Dict[str, Any]] = None
+    persona_id: str
+    conversation_id: str
 
 class ChatResponse(BaseModel):
     response: Optional[str] = Field(None, description="The generated response if applicable")

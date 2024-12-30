@@ -38,7 +38,7 @@ def format_chat_context(messages: List[models.Message], max_messages: int = 10) 
         for msg in recent_messages
     ])
 
-@router.post("/chat", response_model=models.ChatResponse)
+@router.post("/chatting", response_model=models.ChatResponse)
 async def process_chat(
     request: models.ChatRequest,
     agent: AgentSystem = Depends(get_agent_system)
@@ -94,15 +94,18 @@ async def process_chat(
     finally:
         agent.close()
 
-@router.post("/relationship-test", response_model=models.ChatResponse)
+
+@router.post("/relationship-test", response_model=models.TestResponse) 
 async def generate_test(
     request: models.ChatRequest,
     agent: AgentSystem = Depends(get_agent_system)
-) -> models.ChatResponse:
+) -> models.TestResponse: 
     """Generate a relationship test based on conversation history."""
     try:
+        last_message = request.messages[-1].content
+        
         analysis = agent.analyze_message(
-            message=request.last_message,
+            message=last_message,
             persona_id=request.persona_id,
             context=request.context
         )
@@ -113,7 +116,7 @@ async def generate_test(
             context=request.context
         )
         
-        return models.TestResponse(
+        return models.TestResponse(  
             question=test_question,
             analysis=analysis,
             persona_id=request.persona_id,
@@ -128,6 +131,30 @@ async def generate_test(
     finally:
         agent.close()
 
+@router.post("/truth-bomb", response_model=models.TestResponse)
+async def generate_truth_bomb(
+    request: models.ChatRequest,
+    agent: AgentSystem = Depends(get_agent_system)
+) -> models.TestResponse:
+    """Generate a targeted truth bomb based on conversation analysis."""
+    try:
+        analysis = agent.analyze_conversation(request.messages)
+        
+        return models.TestResponse(
+            question=analysis.get("truth_bomb", "How's the conversation going?"),
+            analysis=analysis,
+            persona_id=request.persona_id,
+            conversation_id=request.conversation_id
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating truth bomb: {str(e)}"
+        )
+    finally:
+        agent.close()
+
 @router.get("/health", response_model=models.HealthResponse)
 async def health_check(
     agent: AgentSystem = Depends(get_agent_system)
@@ -136,9 +163,9 @@ async def health_check(
     try:
         personas_status = {
             persona_id: {
-                "name": persona.name,
+                "name": persona["name"],  
                 "status": "active",
-                "knowledge_domains": persona.knowledge_domains
+                "knowledge_domains": persona.get("personality_traits", [])  
             }
             for persona_id, persona in agent.personas.items()
         }
