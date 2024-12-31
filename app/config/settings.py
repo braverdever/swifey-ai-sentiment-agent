@@ -1,8 +1,6 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-
-# Load environment variables from .env file
 load_dotenv()
 
 # Base paths
@@ -10,13 +8,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
 
 # Model settings
-MODEL_TYPE = os.getenv("SWIFEY_MODEL_TYPE", "api")  # Only "api" is supported
+MODEL_TYPE = os.getenv("SWIFEY_MODEL_TYPE", "api")  
 
 # API model settings
-API_URL = os.getenv("SWIFEY_API_URL", "https://api.hyperbolic.xyz/v1/chat/completions")
+API_URL = os.getenv("HYPERBOLIC_API_URL")
 API_MODEL = os.getenv("SWIFEY_API_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
 
-# Redis settings
 REDIS_HOST = os.getenv("SWIFEY_REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("SWIFEY_REDIS_PORT", "6379"))
 REDIS_CACHE_TTL = int(os.getenv("SWIFEY_REDIS_CACHE_TTL", "3600"))
@@ -43,5 +40,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # LLM configuration
 LLM_CONFIG = {
     "type": MODEL_TYPE,
-    "model": API_MODEL
+    "model": API_MODEL,
+    "api_url": API_URL,
+    "api_key": os.getenv("HYPERBOLIC_API_KEY")
 }

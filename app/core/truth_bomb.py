@@ -1,7 +1,13 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import json
+import logging
 import random
 import re
+
+from app.models.llm_adapter import LLMAdapter
+
+logger = logging.getLogger(__name__)
 
 class TruthBombAnalyzer:
     def __init__(self):
@@ -28,6 +34,156 @@ class TruthBombAnalyzer:
             "sure",
             "whatever"
         ]
+
+        self.llm_prompt_template = """
+        Analyze this dating app conversation and generate an engaging truth bomb or insight that will help keep the conversation going.
+        
+        Conversation Context:
+        {context}
+        
+        Messages:
+        {messages}
+        
+        Analysis Metrics:
+        - Engagement Score: {engagement_score}
+        - Flirting Score: {flirt_score}
+        - Conversation Stage: {stage}
+        - Message Quality: {message_quality}
+        - Response Time Score: {response_time}
+        
+        Additional Insights:
+        - Shared Interests Score: {shared_interests}
+        - Flow Score: {flow_score}
+        - Respect Score: {respect_score}
+        
+        Risk Factors:
+        {risk_factors}
+        
+        Based on this analysis, generate:
+        1. A thought-provoking observation or truth bomb that will encourage deeper conversation
+        2. A suggested conversation direction that builds on the current dynamic
+        3. Any potential warnings or areas to be mindful of
+        
+        Format the response as JSON:
+        {
+            "truth_bomb": "Your main insight/observation",
+            "suggested_direction": "Specific conversation suggestion",
+            "caution": "Any warnings or things to be mindful of",
+            "confidence": 0.0-1.0
+        }
+        """
+
+    def _format_messages_for_llm(self, messages: List[Dict]) -> str:
+        """Format message history for LLM prompt"""
+        formatted = []
+        for msg in messages:
+            formatted.append(f"{msg['sender']}: {msg['content']}")
+        return "\n".join(formatted)
+
+    def _format_risk_factors(self, risk_factors: Dict[str, float]) -> str:
+        """Format risk factors for LLM prompt"""
+        factors = []
+        if risk_factors["severity"] > 0.5:
+            factors.append(f"- Overall Risk Level: {risk_factors['severity']:.2f}")
+        if risk_factors["gaslighting_ratio"] > 0.3:
+            factors.append(f"- Gaslighting Indicators: {risk_factors['gaslighting_ratio']:.2f}")
+        if risk_factors["aggression_ratio"] > 0.3:
+            factors.append(f"- Aggression Indicators: {risk_factors['aggression_ratio']:.2f}")
+        if risk_factors["pressure_ratio"] > 0.3:
+            factors.append(f"- Pressure Indicators: {risk_factors['pressure_ratio']:.2f}")
+        
+        return "\n".join(factors) if factors else "No significant risk factors detected"
+
+    def generate_llm_truth_bomb(
+        self,
+        messages: List[Dict],
+        context: str,
+        llm_adapter: LLMAdapter
+    ) -> Dict[str, Any]:
+        """Generate an LLM-enhanced truth bomb analysis"""
+        try:
+            # Gather all analysis metrics
+            signals = self._extract_date_signals(messages)
+            conversation_health = self._assess_conversation_health(messages)
+            risk_factors = self._detect_risk_factors(messages)
+            stage = self._determine_conversation_stage(messages)
+            
+            # Format the LLM prompt
+            prompt = self.llm_prompt_template.format(
+                context=context,
+                messages=self._format_messages_for_llm(messages),
+                engagement_score=self._calculate_engagement_score(messages),
+                flirt_score=signals["flirting_level"],
+                stage=stage,
+                message_quality=signals["message_quality"],
+                response_time=signals["response_time"],
+                shared_interests=signals["shared_interests"],
+                flow_score=conversation_health["flow_score"],
+                respect_score=conversation_health["respect_score"],
+                risk_factors=self._format_risk_factors(risk_factors)
+            )
+            
+            # Generate LLM response
+            llm_response = llm_adapter.generate(
+                prompt=prompt,
+                max_tokens=512,
+                temperature=0.7
+            )
+            
+            # Parse LLM response
+            try:
+                llm_analysis = json.loads(llm_response)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse LLM response as JSON")
+                return self._generate_fallback_analysis(messages)
+            
+            # Combine algorithmic and LLM analysis
+            return {
+                "truth_bomb": llm_analysis["truth_bomb"],
+                "confidence": llm_analysis.get("confidence", 0.7),
+                "type": "llm_truth_bomb",
+                "details": {
+                    "suggested_direction": llm_analysis.get("suggested_direction"),
+                    "caution": llm_analysis.get("caution"),
+                    "signals": signals,
+                    "conversation_health": conversation_health,
+                    "risk_factors": risk_factors
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating LLM truth bomb: {e}")
+            return self._generate_fallback_analysis(messages)
+            
+    def _generate_fallback_analysis(self, messages: List[Dict]) -> Dict[str, Any]:
+        """Generate fallback analysis when LLM generation fails"""
+        engagement_score = self._calculate_engagement_score(messages)
+        stage = self._determine_conversation_stage(messages)
+        
+        fallback_messages = {
+            "early": [
+                "The conversation is just getting started. Try sharing something unique about yourself!",
+                "There's potential here - what interests you most about their profile?"
+            ],
+            "middle": [
+                "You're building a good rapport. What common interests have you discovered?",
+                "The conversation is flowing well. Consider diving deeper into shared topics."
+            ],
+            "advanced": [
+                "You've built strong engagement. Maybe it's time to plan that coffee date?",
+                "The chemistry is evident. What's holding you back from meeting in person?"
+            ]
+        }
+        
+        return {
+            "truth_bomb": random.choice(fallback_messages.get(stage, fallback_messages["early"])),
+            "confidence": 0.5,
+            "type": "fallback_truth_bomb",
+            "details": {
+                "stage": stage,
+                "engagement_score": engagement_score
+            }
+        }
 
     def _calculate_engagement_score(self, messages: List[Dict]) -> float:
         """Calculate engagement score based on message content and patterns"""
