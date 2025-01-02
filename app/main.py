@@ -9,6 +9,7 @@ import uvicorn
 from .api.chat import router as chat_router
 from .api.embeddings import router as embeddings_router
 from .api.websocket import router as websocket_router
+from .api.webhooks import router as webhook_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -51,6 +52,11 @@ def get_application() -> FastAPI:
         websocket_router,
         prefix="/api/v1/ws",
         tags=["websocket"]
+    )
+    app.include_router(
+        webhook_router,
+        prefix="/api/v1/webhooks",
+        tags=["webhooks"]
     )
 
     @app.exception_handler(RequestValidationError)
@@ -101,7 +107,20 @@ async def attach_logger(request: Request, call_next):
 @app.middleware("http")
 async def auth_middleware_handler(request: Request, call_next):
     """Authentication middleware."""
-    if request.url.path in ["/", "/docs", "/redoc", "/openapi.json"]:
+    public_paths = [
+        "/",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/v1/webhooks/profiles"  # Allow webhook endpoint without auth
+    ]
+    
+    # Check if the path ends with any of the public paths
+    is_public = any(request.url.path.endswith(public_path) for public_path in public_paths)
+    
+
+    print(request.url.path)
+    if is_public:
         return await call_next(request)
     
     try:

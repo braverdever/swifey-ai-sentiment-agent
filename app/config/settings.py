@@ -33,9 +33,16 @@ LOG_FORMAT = os.getenv(
 SUPABASE_URL = os.getenv("SWIFEY_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SWIFEY_SUPABASE_KEY")
 
+# Telegram settings
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "2185680092/10101"  # Hardcoded specific chat ID
+
 # Validate required settings
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Supabase URL and key must be provided in environment variables")
+
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("Telegram bot token must be provided in environment variables")
 
 # LLM configuration
 LLM_CONFIG = {
