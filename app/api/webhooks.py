@@ -2,11 +2,19 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from datetime import datetime
 import json
 import logging
-from ..utils.telegram import send_to_telegram, format_profile_update_message, handle_callback_query
-from ..config.settings import TELEGRAM_BOT_TOKEN
+from ..utils.telegram import (
+    send_to_telegram, 
+    format_profile_update_message, 
+    handle_callback_query,
+    format_daily_metrics_message
+)
+from ..config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Store the metrics chat ID separately
+METRICS_CHAT_ID = "2185680092/10120"
 
 async def verify_telegram_token(request: Request):
     """Verify that the request is coming from Telegram."""
@@ -77,4 +85,62 @@ async def telegram_callback(request: Request):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process callback: {str(e)}"
+        )
+
+@router.post("/metrics")
+async def metrics_webhook(request: Request):
+    """
+    Webhook endpoint for daily metrics updates.
+    This endpoint receives daily metrics and sends them to the metrics channel.
+    """
+    try:
+        payload = await request.json()
+        logger.info("Received metrics webhook payload")
+        
+        # Handle Supabase event format
+        if payload.get("type") != "INSERT":
+            logger.info("Ignoring non-INSERT event")
+            return {
+                "status": "ignored",
+                "message": "Not an insert event"
+            }
+        
+        # Get metrics from the record's metrics field
+        record = payload.get("record", {})
+        metrics_data = record.get("metrics", {})
+        if not metrics_data:
+            logger.error("No metrics data found in payload")
+            return {
+                "status": "error",
+                "message": "No metrics data found"
+            }
+        
+        logger.info(f"Processing metrics data for date: {metrics_data.get('date')}")
+        
+        # Format the metrics message
+        message = format_daily_metrics_message(metrics_data)
+        logger.info("Formatted metrics message")
+        
+        # Send to the metrics channel
+        logger.info(f"Sending to metrics channel: {METRICS_CHAT_ID}")
+        success = await send_to_telegram(message, chat_id=METRICS_CHAT_ID)
+        
+        if not success:
+            logger.error("Failed to send message to Telegram")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send message to Telegram"
+            )
+        
+        logger.info("Successfully sent metrics to Telegram")
+        return {
+            "status": "success",
+            "message": "Metrics sent to Telegram"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing metrics webhook: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process metrics: {str(e)}"
         ) 

@@ -112,7 +112,8 @@ async def auth_middleware_handler(request: Request, call_next):
         "/docs",
         "/redoc",
         "/openapi.json",
-        "/api/v1/webhooks/profiles"  # Allow webhook endpoint without auth
+        "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
+        "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
     ]
     
     # Check if the path ends with any of the public paths
