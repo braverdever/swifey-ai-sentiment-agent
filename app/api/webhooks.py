@@ -26,28 +26,20 @@ async def profile_webhook(request: Request):
         print(payload)
 
         record = payload.get("record", {})
-        old_record = payload.get("old_record")
         event_type = payload.get("type")
         
+        # Only process INSERT events
+        if event_type != "INSERT":
+            return {
+                "status": "ignored",
+                "message": "Event type not INSERT"
+            }
+            
         # Format message and get photos to send
-        telegram_message, photos_to_send = format_profile_update_message(record, old_record)
+        telegram_message, photos_to_send = format_profile_update_message(record)
         
-        # Show approval button only for:
-        # 1. New profiles (INSERT)
-        # 2. When verification_status changes to initial_review or pending
-        show_approval = False
-        if event_type == "INSERT":
-            show_approval = True
-        elif event_type == "UPDATE" and old_record:
-            old_status = old_record.get("verification_status")
-            new_status = record.get("verification_status")
-            if new_status in ["initial_review", "pending"] and old_status != new_status:
-                show_approval = True
-        
-        if show_approval:
-            await send_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
-        else:
-            await send_to_telegram(telegram_message, photos_to_send)
+        # Send notification with approval button for new profiles
+        await send_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
         
         return {
             "status": "success",
