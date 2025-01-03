@@ -6,7 +6,8 @@ from ..utils.telegram import (
     send_to_telegram, 
     format_profile_update_message, 
     handle_callback_query,
-    format_daily_metrics_message
+    format_daily_metrics_message,
+    send_profile_to_telegram
 )
 from ..config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
@@ -36,18 +37,47 @@ async def profile_webhook(request: Request):
         record = payload.get("record", {})
         event_type = payload.get("type")
         
-        # Only process INSERT events
-        if event_type != "INSERT":
+        # Only process UPDATE events
+        if event_type != "UPDATE":
             return {
                 "status": "ignored",
-                "message": "Event type not INSERT"
+                "message": f"Event type {event_type} not handled"
             }
+
+        # Required fields to check
+        required_fields = ["name", "bio", "photos", "matching_prompt", 
+                          "gender", "gender_preference", "date_of_birth"]
+        
+        # Check if required fields exist
+        for field in required_fields:
+            if field not in record:
+                return {
+                    "status": "ignored",
+                    "message": f"Required field {field} is missing"
+                }
             
+        # Check verification status - only proceed if initial_review
+        if record.get("verification_status") != "initial_review":
+            return {
+                "status": "ignored", 
+                "message": "Profile not in initial review status"
+            }
+
         # Format message and get photos to send
         telegram_message, photos_to_send = format_profile_update_message(record)
         
-        # Send notification with approval button for new profiles
-        await send_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
+        if not photos_to_send:
+            # If no photos, use regular send_to_telegram
+            success = await send_to_telegram(telegram_message, profile_id=record.get("id"))
+        else:
+            # Use specialized function for profile updates with photos
+            success = await send_profile_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send Telegram notification"
+            )
         
         return {
             "status": "success",
