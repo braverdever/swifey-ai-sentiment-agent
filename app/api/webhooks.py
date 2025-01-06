@@ -55,20 +55,19 @@ async def profile_webhook(request: Request):
                 }
             
         # Check verification status - only proceed if initial_review
-        if record.get("verification_status") != "initial_review":
+        if record.get("verification_status") != "pending_review":
             return {
                 "status": "ignored", 
-                "message": "Profile not in initial review status"
+                "message": "Profile not in pending review status"
             }
 
         # Format message and get photos to send
         telegram_message, photos_to_send = format_profile_update_message(record)
         
+        success = False
         if not photos_to_send:
-            # If no photos, use regular send_to_telegram
             success = await send_to_telegram(telegram_message, profile_id=record.get("id"))
         else:
-            # Use specialized function for profile updates with photos
             success = await send_profile_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
         
         if not success:
@@ -76,10 +75,27 @@ async def profile_webhook(request: Request):
                 status_code=500,
                 detail="Failed to send Telegram notification"
             )
-        
+
+        try:
+            from supabase import create_client
+            from ..config.settings import SUPABASE_URL, SUPABASE_KEY
+            
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            
+            result = supabase.table('profiles').update({
+                'verification_status': 'initial_review'
+            }).eq('id', record.get('id')).execute()
+            
+        except Exception as e:
+            logger.error(f"Failed to update verification status: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update verification status"
+            )
+
         return {
             "status": "success",
-            "message": "Profile notification sent to Telegram"
+            "message": "Profile notification sent and status updated"
         }
         
     except Exception as e:
