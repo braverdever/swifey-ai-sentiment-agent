@@ -30,11 +30,11 @@ async def process_metrics_webhook(payload: dict, metrics_chat_id: str) -> dict:
             }
         
         # Get Twitter followers count
-        twitter_followers = await get_twitter_followers()
-        if twitter_followers is not None:
-            metrics_data['twitter_followers'] = twitter_followers
+        # twitter_followers = await get_twitter_followers()
+        # if twitter_followers is not None:
+        #     metrics_data['twitter_followers'] = twitter_followers
         
-        logger.info(f"Processing metrics data for date: {metrics_data.get('date')}")
+        # logger.info(f"Processing metrics data for date: {metrics_data.get('date')}")
         
         # Format the metrics message
         message = format_daily_metrics_message(metrics_data)
