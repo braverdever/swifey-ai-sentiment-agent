@@ -1,14 +1,12 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
-from datetime import datetime
-import json
 import logging
 from ..utils.telegram import (
     send_to_telegram, 
     format_profile_update_message, 
     handle_callback_query,
-    format_daily_metrics_message,
     send_profile_to_telegram
 )
+from ..services.metrics import process_metrics_webhook
 from ..config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 router = APIRouter()
@@ -48,29 +46,28 @@ async def profile_webhook(request: Request):
         required_fields = ["name", "bio", "photos", "matching_prompt", 
                           "gender", "gender_preference", "date_of_birth"]
         
-        # Check if required fields exist
+        # Check if required fields exist and have valid values
         for field in required_fields:
-            if field not in record:
+            if field not in record or record[field] is None or record[field] == "" or record[field] == []:
                 return {
                     "status": "ignored",
-                    "message": f"Required field {field} is missing"
+                    "message": f"Required field {field} is missing or empty"
                 }
             
         # Check verification status - only proceed if initial_review
-        if record.get("verification_status") != "initial_review":
+        if record.get("verification_status") != "pending_review":
             return {
                 "status": "ignored", 
-                "message": "Profile not in initial review status"
+                "message": "Profile not in pending review status"
             }
 
         # Format message and get photos to send
         telegram_message, photos_to_send = format_profile_update_message(record)
         
+        success = False
         if not photos_to_send:
-            # If no photos, use regular send_to_telegram
             success = await send_to_telegram(telegram_message, profile_id=record.get("id"))
         else:
-            # Use specialized function for profile updates with photos
             success = await send_profile_to_telegram(telegram_message, photos_to_send, profile_id=record.get("id"))
         
         if not success:
@@ -78,10 +75,27 @@ async def profile_webhook(request: Request):
                 status_code=500,
                 detail="Failed to send Telegram notification"
             )
-        
+
+        try:
+            from supabase import create_client
+            from ..config.settings import SUPABASE_URL, SUPABASE_KEY
+            
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            
+            result = supabase.table('profiles').update({
+                'verification_status': 'initial_review'
+            }).eq('id', record.get('id')).execute()
+            
+        except Exception as e:
+            logger.error(f"Failed to update verification status: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update verification status"
+            )
+
         return {
             "status": "success",
-            "message": "Profile notification sent to Telegram"
+            "message": "Profile notification sent and status updated"
         }
         
     except Exception as e:
@@ -125,48 +139,12 @@ async def metrics_webhook(request: Request):
     """
     try:
         payload = await request.json()
-        logger.info("Received metrics webhook payload")
+        result = await process_metrics_webhook(payload, METRICS_CHAT_ID)
         
-        # Handle Supabase event format
-        if payload.get("type") != "INSERT":
-            logger.info("Ignoring non-INSERT event")
-            return {
-                "status": "ignored",
-                "message": "Not an insert event"
-            }
-        
-        # Get metrics from the record's metrics field
-        record = payload.get("record", {})
-        metrics_data = record.get("metrics", {})
-        if not metrics_data:
-            logger.error("No metrics data found in payload")
-            return {
-                "status": "error",
-                "message": "No metrics data found"
-            }
-        
-        logger.info(f"Processing metrics data for date: {metrics_data.get('date')}")
-        
-        # Format the metrics message
-        message = format_daily_metrics_message(metrics_data)
-        logger.info("Formatted metrics message")
-        
-        # Send to the metrics channel
-        logger.info(f"Sending to metrics channel: {METRICS_CHAT_ID}")
-        success = await send_to_telegram(message, chat_id=METRICS_CHAT_ID)
-        
-        if not success:
-            logger.error("Failed to send message to Telegram")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to send message to Telegram"
-            )
-        
-        logger.info("Successfully sent metrics to Telegram")
-        return {
-            "status": "success",
-            "message": "Metrics sent to Telegram"
-        }
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["message"])
+            
+        return result
         
     except Exception as e:
         logger.error(f"Error processing metrics webhook: {e}")

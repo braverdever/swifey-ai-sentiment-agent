@@ -22,3 +22,4 @@ hypercorn>=0.15.0
 torch
 torchvision
 git+https://github.com/openai/CLIP.git
+selenium>=4.15.0
