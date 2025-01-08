@@ -302,10 +302,7 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                query = self.supabase.table('embeddings').select('*')
-                
-                query = query.eq('agent_id', agent_id)
-                
+                query = self.supabase.table('embeddings').select('*')                
                 responses = query.execute()
                 total_records = len(responses.data) if responses.data else 0
                 print(f"Found {total_records} records after filtering")
@@ -350,7 +347,7 @@ class EmbeddingManager:
                     similarity = float(np.dot(query_array, resp_array) / 
                                     (np.linalg.norm(query_array) * np.linalg.norm(resp_array)))
 
-                    if similarity > 0.9:
+                    if similarity > 0.1:
                         similarities.append({
                             'response_id': resp['user_id'],
                             'similarity_score': similarity,
