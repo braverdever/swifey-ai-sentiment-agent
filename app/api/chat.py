@@ -151,7 +151,6 @@ async def generate_truth_bomb(
             question=truth_bomb,
             analysis=analysis,
             persona_id=request.persona_id,
-            conversation_id=request.conversation_id
         )
         
     except Exception as e:
@@ -166,7 +165,6 @@ async def generate_truth_bomb(
                 "all_analyses": []
             },
             persona_id=request.persona_id,
-            conversation_id=request.conversation_id
         )
     finally:
         agent.close()
