@@ -12,7 +12,6 @@ class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., description="List of messages in the conversation")
     persona_id: str = Field(default="default_assistant", description="The ID of the persona to use")
     context: str = Field(default="", description="Additional context for the conversation")
-    conversation_id: Optional[str] = Field(default=None, description="Conversation identifier")
     frequency: int = Field(default=3, description="Number of messages to wait before generating a response")
     max_context_messages: int = Field(default=10, description="Maximum number of previous messages to consider")
     last_message: Optional[str] = None  
@@ -21,27 +20,23 @@ class TestResponse(BaseModel):
     question: str
     analysis: Optional[Dict[str, Any]] = None
     persona_id: str
-    conversation_id: str
 
 class ChatResponse(BaseModel):
     response: Optional[str] = Field(None, description="The generated response if applicable")
     should_respond: bool = Field(..., description="Whether the agent should respond now")
     analysis: Optional[Dict[str, Any]] = Field(None, description="Analysis of the conversation")
     persona_id: str = Field(..., description="The ID of the persona")
-    conversation_id: str = Field(..., description="Conversation identifier")
     message_count: int = Field(..., description="Current message count in the conversation")
 
 class MessageRequest(BaseModel):
     message: str = Field(..., description="The message to process")
     persona_id: str = Field(default="default_assistant", description="The ID of the persona to use")
     context: str = Field(default="", description="Additional context for the message")
-    conversation_id: Optional[str] = Field(default=None, description="Conversation identifier")
 
 class MessageResponse(BaseModel):
     response: str = Field(..., description="The generated response")
     analysis: Optional[Dict[str, Any]] = Field(default=None, description="Analysis of the message")
     persona_id: str = Field(..., description="The ID of the persona that generated the response")
-    conversation_id: Optional[str] = Field(default=None, description="Conversation identifier")
 
 class FeedbackRequest(BaseModel):
     persona_id: str = Field(..., description="The ID of the persona to provide feedback for")
@@ -49,7 +44,6 @@ class FeedbackRequest(BaseModel):
     content: str = Field(..., description="The content that received feedback")
     feedback_score: float = Field(..., ge=0, le=1, description="Feedback score between 0 and 1")
     details: Dict[str, Any] = Field(default_factory=dict, description="Additional feedback details")
-    conversation_id: str = Field(..., description="Conversation identifier")
     context: str = Field(default="", description="Context in which the feedback was given")
 
 class FeedbackResponse(BaseModel):
