@@ -188,6 +188,11 @@ class EmbeddingManager:
             print("Starting text embedding creation/update...")
             embeddings_data = []
             
+            await self.delete_embeddings(
+                user_id=user_id,
+                embedding_types=[embedding_type]
+            )
+            
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
                 
@@ -212,7 +217,7 @@ class EmbeddingManager:
             
             print(f"Storing/updating {len(embeddings_data)} text embeddings in Supabase...")
             result = self.supabase.table("embeddings").upsert(
-                embedding_record
+                embeddings_data  # Fixed: Use the full list instead of single record
             ).execute()
             print("Text embeddings stored/updated successfully")
             return result.data
@@ -225,7 +230,7 @@ class EmbeddingManager:
         """Fetch profile data from Supabase."""
         try:
             response = self.supabase.table('profiles') \
-                .select('id, name, bio, gender, location, matching_prompt, selfie_url') \
+                .select('id, name, bio, gender, location, matching_prompt, photos') \
                 .eq('id', profile_id) \
                 .single() \
                 .execute()
