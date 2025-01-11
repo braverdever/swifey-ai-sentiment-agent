@@ -378,7 +378,7 @@ class EmbeddingManager:
                 user_ids = list(set(s['response_id'] for s in similarities))
                 
                 profiles_response = self.supabase.table('profiles') \
-                    .select('id, name, bio, gender, location, matching_prompt, selfie_url') \
+                    .select('id, name, bio, gender, location, matching_prompt, photos') \
                     .in_('id', user_ids) \
                     .execute()
                 
