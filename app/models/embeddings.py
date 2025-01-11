@@ -285,7 +285,7 @@ class EmbeddingManager:
         response: str,
         user_id: str,
         agent_id: str,
-        per_page: int = 10,
+        per_page: int = 20,
         filters: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """Search for similar responses based on CLIP embeddings"""
@@ -302,8 +302,12 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                query = self.supabase.table('embeddings').select('*')                
+                query = self.supabase.table('embeddings').select('*')
                 responses = query.execute()
+                
+                user_ids = list(set(resp['user_id'] for resp in responses.data if 'user_id' in resp))                
+                profiles = self.supabase.table('profiles').select('*').in_('id', user_ids).execute()
+                
                 total_records = len(responses.data) if responses.data else 0
                 print(f"Found {total_records} records after filtering")
                 
@@ -365,8 +369,19 @@ class EmbeddingManager:
                     print(f"Error processing record {resp.get('user_id')}: {str(e)}")
                     continue
 
-            # Process results
             if similarities:
+                user_ids = list(set(s['response_id'] for s in similarities))
+                
+                profiles_response = self.supabase.table('profiles') \
+                    .select('id, name, bio, gender, location, matching_prompt, selfie_url') \
+                    .in_('id', user_ids) \
+                    .execute()
+                
+                profiles_lookup = {
+                    profile['id']: profile 
+                    for profile in profiles_response.data
+                } if profiles_response.data else {}
+
                 max_score = max(s['similarity_score'] for s in similarities)
                 mean_score = sum(s['similarity_score'] for s in similarities) / len(similarities)
                 print(f"Max similarity: {max_score:.4f}, Mean similarity: {mean_score:.4f}")
@@ -374,12 +389,14 @@ class EmbeddingManager:
                 results = []
                 for s in similarities:
                     s['relative_score'] = float(s['similarity_score'] / max_score if max_score > 0 else 0.0)
+                    # Add profile data to each result
+                    s['profile'] = profiles_lookup.get(s['response_id'], {})
                     results.append(s)
 
                 # Sort and limit results
                 results.sort(key=lambda x: x['similarity_score'], reverse=True)
                 results = results[:per_page]
-                print(f"Returning {len(results)} results")
+                print(f"Returning {len(results)} results with profiles")
             else:
                 results = []
                 max_score = mean_score = 0.0
