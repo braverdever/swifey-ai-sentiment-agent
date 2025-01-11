@@ -18,9 +18,7 @@ async def verify_turnkey_proof(request: TurnkeyProofRequest):
     Verify turnkey proof and return a signed JWT token.
     """
     try:
-        # TODO: Implement actual verification logic
         
-        # TODO: check if user exists if not create and send the user object
         supabase = get_supabase()
         user = supabase.table("profiles").select("*").eq("email", request.email).execute().data
         if not user:

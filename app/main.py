@@ -13,6 +13,7 @@ from .api.webhooks import router as webhook_router
 from .api.auth import router as auth_router
 from .api.profile import router as profile_router
 from .api.chat_ws import router as chat_ws_router
+from .api.turnkey import router as turnkey_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -41,6 +42,12 @@ def get_application() -> FastAPI:
         profile_router,
         prefix="/api/v1/profile",
         tags=["profile"]
+    )
+
+    app.include_router(
+        turnkey_router,
+        prefix="/api/v1/turnkey",
+        tags=["turnkey"]
     )
 
     # CORS middleware
@@ -136,6 +143,8 @@ async def auth_middleware_handler(request: Request, call_next):
         "/openapi.json",
         "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
         "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
+        "/api/v1/turnkey/initotp",
+        "/api/v1/turnkey/verifyotp",
     ]
     
     # Check if the path ends with any of the public paths
