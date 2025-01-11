@@ -51,3 +51,5 @@ LLM_CONFIG = {
     "api_url": API_URL,
     "api_key": os.getenv("HYPERBOLIC_API_KEY")
 }
+
+JWT_SECRET = os.getenv("JWT_SECRET")

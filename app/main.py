@@ -10,6 +10,9 @@ from .api.chat import router as chat_router
 from .api.embeddings import router as embeddings_router
 from .api.websocket import router as websocket_router
 from .api.webhooks import router as webhook_router
+from .api.auth import router as auth_router
+from .api.profile import router as profile_router
+from .api.chat_ws import router as chat_ws_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -27,6 +30,18 @@ def get_application() -> FastAPI:
     # Event handlers
     app.add_event_handler("startup", create_start_app_handler(app))
     app.add_event_handler("shutdown", create_stop_app_handler(app))
+
+    app.include_router(
+        auth_router,
+        prefix="/api/v1/auth",
+        tags=["auth"]
+    )
+
+    app.include_router(
+        profile_router,
+        prefix="/api/v1/profile",
+        tags=["profile"]
+    )
 
     # CORS middleware
     app.add_middleware(
@@ -52,6 +67,11 @@ def get_application() -> FastAPI:
         websocket_router,
         prefix="/api/v1/ws",
         tags=["websocket"]
+    )
+    app.include_router(
+        chat_ws_router,
+        prefix="/api/v1/ws",
+        tags=["chat"]
     )
     app.include_router(
         webhook_router,
@@ -109,6 +129,8 @@ async def auth_middleware_handler(request: Request, call_next):
     """Authentication middleware."""
     public_paths = [
         "/",
+        "/api/v1/auth/verify",
+        "/api/v1/profile/update",
         "/docs",
         "/redoc",
         "/openapi.json",
@@ -153,9 +175,10 @@ async def add_timing_logs(request: Request, call_next):
 def run_main_app() -> None:
     """Run the application using uvicorn."""
     uvicorn.run(
-        app,
+        "app.main:app",
         host="0.0.0.0",
         port=80,
+        reload=True  # Enable auto-reload
     )
 
 
