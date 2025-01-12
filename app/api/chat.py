@@ -52,6 +52,18 @@ class ChatMessagesResponse(BaseModel):
     message: str
     messages: List[Message]
 
+class AudioClip(BaseModel):
+    audio_id: str  # Changed from 'id' to match response
+    title: str
+    duration: int
+    audio_url: str
+    thumbnail_url: Optional[str]
+
+class AudioClipsResponse(BaseModel):
+    success: bool
+    message: str
+    audio_clips: List[AudioClip]
+
 def get_agent_system() -> AgentSystem:
     """Dependency to get the agent system instance."""
     from ..config import settings
@@ -282,4 +294,23 @@ async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_ap
             "messages": response.data
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/get_audio_clips", response_model=AudioClipsResponse)
+async def get_audio_clips(user_id: str = Depends(verify_app_token)):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("get_all_audio_clips").execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No audio clips found",
+                "audio_clips": []
+            }
+        return {
+            "success": True,
+            "message": "Audio clips fetched successfully",
+            "audio_clips": response.data
+        }
+    except Exception as e:  
         raise HTTPException(status_code=500, detail=str(e))
