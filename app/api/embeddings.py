@@ -4,6 +4,9 @@ from pydantic import BaseModel, Field
 from ..models.embeddings import EmbeddingManager  
 import os
 from datetime import datetime
+from ..db.supabase import get_supabase
+from fastapi import Depends
+from ..auth.middleware import verify_app_token
 
 router = APIRouter()
 embedding_manager = EmbeddingManager()
@@ -38,6 +41,10 @@ class SimilarityRequest(BaseModel):
 
 class ProfilePhotoRequest(BaseModel):
     user_id: str
+
+class UserAIRequest(BaseModel):
+    agent_id: str
+    compatibilty_prompt: str
 
 @router.post("/sync-profile-photos")
 async def sync_profile_photos(request: ProfilePhotoRequest):
@@ -173,5 +180,22 @@ async def compare_users(
             embedding_type=embedding_type
         )
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post('/create_user_ai_data')
+async def create_user_ai_data(request: UserAIRequest, profile_id: str = Depends(verify_app_token)):
+    try: 
+        supabase = get_supabase()
+        response = supabase.table('user_ai_data').insert({
+            'profile_id': profile_id,
+            'agent_id': request.agent_id,
+            'compatibilty_prompt': request.compatibilty_prompt
+        }).execute()
+
+        return {
+            "success": True,
+            "message": "User AI data created successfully"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

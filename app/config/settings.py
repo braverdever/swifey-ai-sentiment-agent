@@ -51,3 +51,23 @@ LLM_CONFIG = {
     "api_url": API_URL,
     "api_key": os.getenv("HYPERBOLIC_API_KEY")
 }
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+
+# Turnkey API Settings
+TURNKEY_API_PUBLIC_KEY = os.getenv("TURNKEY_API_PUBLIC_KEY")
+if not TURNKEY_API_PUBLIC_KEY:
+    raise ValueError("TURNKEY_API_PUBLIC_KEY environment variable is not set")
+
+TURNKEY_API_PRIVATE_KEY = os.getenv("TURNKEY_API_PRIVATE_KEY")
+if not TURNKEY_API_PRIVATE_KEY:
+    raise ValueError("TURNKEY_API_PRIVATE_KEY environment variable is not set")
+
+TURNKEY_ORGANIZATION_ID = os.getenv("TURNKEY_ORGANIZATION_ID")
+if not TURNKEY_ORGANIZATION_ID:
+    raise ValueError("TURNKEY_ORGANIZATION_ID environment variable is not set")
+
+# Firebase
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
+if not FIREBASE_PROJECT_ID:
+    raise ValueError("FIREBASE_PROJECT_ID environment variable is not set")

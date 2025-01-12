@@ -7,6 +7,7 @@ python-dotenv>=1.0.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.4.2
+pydantic[email]>=2.4.2
 python-multipart>=0.0.6
 httpx>=0.25.0
 supabase>=1.0.3
@@ -19,7 +20,16 @@ regex>=2023.0.0
 tqdm>=4.66.0
 requests>=2.31.0
 hypercorn>=0.15.0
+python-jose[cryptography]>=3.3.0
+cryptography>=41.0.0
+asn1crypto>=1.5.1
 torch
 torchvision
 git+https://github.com/openai/CLIP.git
 selenium>=4.15.0
+# Firebase dependencies
+google-auth>=2.22.0
+google-auth-httplib2>=0.1.0
+google-api-python-client>=2.0.0
+google-cloud-storage>=2.10.0
+firebase-admin>=6.2.0
