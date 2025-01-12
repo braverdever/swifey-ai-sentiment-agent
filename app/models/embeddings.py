@@ -230,7 +230,7 @@ class EmbeddingManager:
         """Fetch profile data from Supabase."""
         try:
             response = self.supabase.table('profiles') \
-                .select('id, name, bio, gender, location, matching_prompt, photos') \
+                .select('id, name, bio, gender, location, matching_prompt, photos, verification_status') \
                 .eq('id', profile_id) \
                 .single() \
                 .execute()
@@ -307,11 +307,27 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
+                user_preferences = self.supabase.table('profiles') \
+                    .select('gender_preference') \
+                    .eq('id', user_id) \
+                    .single() \
+                    .execute()
+              
+                preferred_genders = user_preferences.data.get('gender_preference', []) if user_preferences.data else []
+                
                 query = self.supabase.table('embeddings').select('*')
                 responses = query.execute()
                 
                 user_ids = list(set(resp['user_id'] for resp in responses.data if 'user_id' in resp))                
-                profiles = self.supabase.table('profiles').select('*').in_('id', user_ids).execute()
+                profiles = self.supabase.table('profiles') \
+                    .select('*') \
+                    .in_('id', user_ids) \
+                    .in_('gender', preferred_genders) \
+                    .eq('verification_status', 'approved\n') \
+                    .execute()
+                
+                valid_user_ids = {profile['id'] for profile in profiles.data} if profiles.data else set()
+                print(f"Valid user IDs: {valid_user_ids}")
                 
                 total_records = len(responses.data) if responses.data else 0
                 print(f"Found {total_records} records after filtering")
@@ -329,7 +345,7 @@ class EmbeddingManager:
             similarities = []
             for resp in responses.data:
                 try:
-                    if resp['user_id'] == user_id:
+                    if resp['user_id'] == user_id or resp['user_id'] not in valid_user_ids:
                         continue
 
                     embedding = resp.get('embedding')
@@ -378,7 +394,7 @@ class EmbeddingManager:
                 user_ids = list(set(s['response_id'] for s in similarities))
                 
                 profiles_response = self.supabase.table('profiles') \
-                    .select('id, name, bio, gender, location, matching_prompt, photos') \
+                    .select('id, name, bio, gender, location, matching_prompt, photos, verification_status') \
                     .in_('id', user_ids) \
                     .execute()
                 
