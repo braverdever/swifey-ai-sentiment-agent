@@ -1,14 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import date
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
+import uuid
+from fastapi import UploadFile, File
+from typing import List
+import uuid
 
 router = APIRouter()
 
 class Location(BaseModel):
-    # Add location fields based on jsonb structure
     latitude: float
     longitude: float
     city: Optional[str] = None
@@ -26,6 +29,31 @@ class UpdateProfileRequest(BaseModel):
     selfie_url: Optional[str] = None
     matching_prompt: Optional[str] = None
     fcm_token: Optional[str] = None
+
+class UserProfile(BaseModel):
+    id: str
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    photos: Optional[List[str]] = None
+    email: Optional[EmailStr] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    location: Optional[Location] = None
+    gender_preference: Optional[List[str]] = None
+    geographical_location: Optional[str] = None
+    selfie_url: Optional[str] = None
+    matching_prompt: Optional[str] = None
+    fcm_token: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    is_active: Optional[bool] = None
+    verification_status: Optional[str] = None
+    agent_id: Optional[str] = None
+
+class ProfileResponse(BaseModel):
+    success: bool
+    message: str
+    user: UserProfile
 
 @router.put("/update")
 async def update_user_profile(
@@ -61,9 +89,7 @@ async def update_user_profile(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-from fastapi import UploadFile, File
-from typing import List
-import uuid
+
 
 @router.post("/new/photos")
 async def upload_photos(
@@ -108,39 +134,33 @@ async def upload_photos(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# TODO: complete these
-@router.put("/name")
-async def update_user_name(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
 
-async def update_user_dob(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
-
-async def update_user_photos(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
-
-async def update_user_gender(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
-
-async def update_user_gender_preference(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
-async def update_user_prompts(
-    request: UpdateProfileRequest,
-    user_id: str = Depends(verify_app_token)
-):
-    pass
+@router.get("/me", response_model=ProfileResponse)
+async def get_my_profile(request: Request, user_id: str = Depends(verify_app_token)):
+    """
+    Get the current user's profile using their access token.
+    """
+    try:
+        # Get user profile from Supabase
+        supabase = get_supabase()
+        response = supabase.from_("profiles").select("*").eq("id", user_id).single().execute()
+        
+        if not response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Profile not found"
+            )
+            
+        return {
+            "success": True,
+            "message": "Profile fetched successfully",
+            "user": response.data
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching profile: {str(e)}"
+        )

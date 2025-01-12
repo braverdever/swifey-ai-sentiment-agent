@@ -66,3 +66,8 @@ if not TURNKEY_API_PRIVATE_KEY:
 TURNKEY_ORGANIZATION_ID = os.getenv("TURNKEY_ORGANIZATION_ID")
 if not TURNKEY_ORGANIZATION_ID:
     raise ValueError("TURNKEY_ORGANIZATION_ID environment variable is not set")
+
+# Firebase
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
+if not FIREBASE_PROJECT_ID:
+    raise ValueError("FIREBASE_PROJECT_ID environment variable is not set")

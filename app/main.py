@@ -14,6 +14,7 @@ from .api.auth import router as auth_router
 from .api.profile import router as profile_router
 from .api.chat_ws import router as chat_ws_router
 from .api.turnkey import router as turnkey_router
+from .api.notification import router as notification_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -48,6 +49,12 @@ def get_application() -> FastAPI:
         turnkey_router,
         prefix="/api/v1/turnkey",
         tags=["turnkey"]
+    )
+
+    app.include_router(
+        notification_router,
+        prefix="/api/v1/notifications",
+        tags=["notifications"]
     )
 
     # CORS middleware
@@ -138,6 +145,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/",
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
+        "/api/v1/profile/me",
         "/docs",
         "/redoc",
         "/openapi.json",
