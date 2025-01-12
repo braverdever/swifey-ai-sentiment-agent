@@ -235,3 +235,29 @@ async def get_user_chats(user_id: str = Depends(verify_app_token)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/chat_messages")
+async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_app_token), before_timestamp: Optional[datetime] = None, page_size: int = 50):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("get_direct_messages", {
+            'user1_uuid': other_user_id,
+            'user2_uuid': user_id,
+            'before_timestamp': before_timestamp,
+            'page_size': page_size
+        }).execute()
+
+        if response is None:
+            return {
+                "success": True,
+                "message": "No chat messages found",
+                "messages": []
+            }
+            
+        return {
+            "success": True,
+            "message": "Chat messages fetched successfully",
+            "messages": response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
