@@ -30,6 +30,28 @@ class ChatListResponse(BaseModel):
     message: str
     chats: List[ChatPreview]
 
+class Message(BaseModel):
+    message_id: str
+    sender_id: str
+    recipient_id: str
+    content: Optional[str]
+    sent_at: datetime
+    edited_at: Optional[datetime]
+    status: str
+    metadata: Dict[str, Any]
+    audio_message_id: Optional[str]
+    message_type: str
+    audio_id: Optional[str]
+    title: Optional[str]
+    duration: Optional[int]
+    audio_url: Optional[str]
+    thumbnail_url: Optional[str]
+
+class ChatMessagesResponse(BaseModel):
+    success: bool
+    message: str
+    messages: List[Message]
+
 def get_agent_system() -> AgentSystem:
     """Dependency to get the agent system instance."""
     from ..config import settings
@@ -236,7 +258,7 @@ async def get_user_chats(user_id: str = Depends(verify_app_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/chat_messages")
+@router.get("/chat_messages", response_model=ChatMessagesResponse)
 async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_app_token), before_timestamp: Optional[datetime] = None, page_size: int = 50):
     try: 
         supabase = get_supabase()
