@@ -146,6 +146,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
         "/api/v1/profile/me",
+        "/api/v1/profile/get-signed-urls",
         "/docs",
         "/redoc",
         "/openapi.json",

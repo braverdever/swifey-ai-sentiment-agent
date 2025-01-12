@@ -22,6 +22,7 @@ class UpdateProfileRequest(BaseModel):
     bio: Optional[str] = None
     email: Optional[EmailStr] = None
     gender: Optional[str] = None
+    photos: Optional[List[str]] = None
     date_of_birth: Optional[date] = None
     location: Optional[Location] = None
     gender_preference: Optional[str] = None
@@ -54,6 +55,14 @@ class ProfileResponse(BaseModel):
     success: bool
     message: str
     user: UserProfile
+
+class SignedUrlRequest(BaseModel):
+    count: int
+
+class SignedUrlResponse(BaseModel):
+    success: bool
+    message: str
+    urls: List[dict]
 
 @router.put("/update")
 async def update_user_profile(
@@ -163,4 +172,54 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching profile: {str(e)}"
+        )
+
+@router.post("/get-signed-urls", response_model=SignedUrlResponse)
+async def get_signed_urls(
+    request: SignedUrlRequest,
+    user_id: str = Depends(verify_app_token)
+):
+    """
+    Generate signed URLs for photo uploads.
+    Requires a valid access token in Authorization header.
+    """
+    try:
+        if request.count <= 0 or request.count > 6:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be between 1 and 6"
+            )
+
+        supabase = get_supabase()
+        signed_urls = []
+
+        for _ in range(request.count):
+            file_id = str(uuid.uuid4())
+            file_path = f"{user_id}/{file_id}.jpg"
+            
+            # Get signed URL for upload
+            signed_data = supabase.storage.from_("photos").create_signed_upload_url(
+                file_path
+            )
+            
+            # The response contains signed_url, token and path
+            signed_urls.append({
+                "id": file_id,
+                "path": signed_data["path"],
+                "signed_url": signed_data["signed_url"]
+            })
+
+        return {
+            "success": True,
+            "message": f"Generated {request.count} signed URLs",
+            "urls": signed_urls
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("Error details:", e)  # Add debug print
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating signed URLs: {str(e)}"
         )
