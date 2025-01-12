@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import date
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
@@ -12,10 +12,12 @@ import uuid
 router = APIRouter()
 
 class Location(BaseModel):
-    latitude: float
-    longitude: float
-    city: Optional[str] = None
-    country: Optional[str] = None
+    coords: Optional[Dict[str, Any]] = None
+    timestamp: Optional[float] = None
+    accuracy: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
 
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = None
@@ -56,6 +58,24 @@ class ProfileResponse(BaseModel):
     message: str
     user: UserProfile
 
+class MatchedUserProfile(BaseModel):
+    id: str
+    name: str
+    date_of_birth: Optional[str] = None
+    photos: Optional[List[str]] = None
+    bio: Optional[str] = None
+    email: str
+    gender: str
+    gender_preference: List[str]
+    location: Optional[Location] = None
+    debug_info: Optional[str] = None
+    selfie_url: Optional[str] = None
+
+class MatchedProfileResponse(BaseModel):
+    success: bool
+    message: str
+    profiles: List[MatchedUserProfile]
+      
 class SignedUrlRequest(BaseModel):
     count: int
 
@@ -173,6 +193,36 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
             status_code=500,
             detail=f"Error fetching profile: {str(e)}"
         )
+    
+@router.get("/matched_profiles", response_model=MatchedProfileResponse)
+async def get_matched_profiles(
+    user_id: str = Depends(verify_app_token),
+    limit: int = 20,
+    offset: int = 0
+):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("get_matched_profiles", {
+            "p_user_id": user_id,
+            "p_limit": limit,
+            "p_offset": offset
+        }).execute()  
+
+        if response is None:
+            return {
+                "success": True,
+                "message": "No matched profiles found",
+                "profiles": [] 
+            }
+        
+        return {
+            "success": True,
+            "message": "Matched profiles fetched successfully",
+            "profiles": response.data 
+        }
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=str(e))
+    
 
 @router.post("/get-signed-urls", response_model=SignedUrlResponse)
 async def get_signed_urls(
