@@ -8,6 +8,13 @@ import uvicorn
 
 from .api.chat import router as chat_router
 from .api.embeddings import router as embeddings_router
+from .api.websocket import router as websocket_router
+from .api.webhooks import router as webhook_router
+from .api.auth import router as auth_router
+from .api.profile import router as profile_router
+from .api.chat_ws import router as chat_ws_router
+from .api.turnkey import router as turnkey_router
+from .api.notification import router as notification_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 
@@ -25,6 +32,30 @@ def get_application() -> FastAPI:
     # Event handlers
     app.add_event_handler("startup", create_start_app_handler(app))
     app.add_event_handler("shutdown", create_stop_app_handler(app))
+
+    app.include_router(
+        auth_router,
+        prefix="/api/v1/auth",
+        tags=["auth"]
+    )
+
+    app.include_router(
+        profile_router,
+        prefix="/api/v1/profile",
+        tags=["profile"]
+    )
+
+    app.include_router(
+        turnkey_router,
+        prefix="/api/v1/turnkey",
+        tags=["turnkey"]
+    )
+
+    app.include_router(
+        notification_router,
+        prefix="/api/v1/notifications",
+        tags=["notifications"]
+    )
 
     # CORS middleware
     app.add_middleware(
@@ -45,6 +76,21 @@ def get_application() -> FastAPI:
         embeddings_router,
         prefix="/api/v1/embeddings",
         tags=["embeddings"]
+    )
+    app.include_router(
+        websocket_router,
+        prefix="/api/v1/ws",
+        tags=["websocket"]
+    )
+    app.include_router(
+        chat_ws_router,
+        prefix="/api/v1/ws",
+        tags=["chat"]
+    )
+    app.include_router(
+        webhook_router,
+        prefix="/api/v1/webhooks",
+        tags=["webhooks"]
     )
 
     @app.exception_handler(RequestValidationError)
@@ -95,7 +141,29 @@ async def attach_logger(request: Request, call_next):
 @app.middleware("http")
 async def auth_middleware_handler(request: Request, call_next):
     """Authentication middleware."""
-    if request.url.path in ["/", "/docs", "/redoc", "/openapi.json"]:
+    public_paths = [
+        "/",
+        "/api/v1/auth/verify",
+        "/api/v1/profile/update",
+        "/api/v1/profile/me",
+        "/api/v1/profile/matched_profiles",
+        "/api/v1/chat/user_chats",
+        "/api/v1/profile/get-signed-urls",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
+        "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
+        "/api/v1/turnkey/initotp",
+        "/api/v1/turnkey/verifyotp",
+    ]
+    
+    # Check if the path ends with any of the public paths
+    is_public = any(request.url.path.endswith(public_path) for public_path in public_paths)
+    
+
+    print(request.url.path)
+    if is_public:
         return await call_next(request)
     
     try:
@@ -127,9 +195,10 @@ async def add_timing_logs(request: Request, call_next):
 def run_main_app() -> None:
     """Run the application using uvicorn."""
     uvicorn.run(
-        app,
+        "app.main:app",
         host="0.0.0.0",
         port=80,
+        reload=True  # Enable auto-reload
     )
 
 

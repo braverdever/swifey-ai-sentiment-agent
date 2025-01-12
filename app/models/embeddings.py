@@ -9,6 +9,7 @@ from supabase import create_client, Client
 from io import BytesIO
 import json
 import requests
+import ast
 
 
 class EmbeddingManager:
@@ -21,67 +22,205 @@ class EmbeddingManager:
         self.supabase: Client = create_client(url, key)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
-    
-    async def create_embeddings(
+
+    async def fetch_profile_photos(self, user_id: str) -> List[str]:
+        """Fetch photo paths from the profiles table."""
+        try:
+            response = self.supabase.table('profiles') \
+                .select('photos') \
+                .eq('id', user_id) \
+                .single() \
+                .execute()
+            
+            if response.data and 'photos' in response.data:
+                return response.data['photos']
+            return []
+        except Exception as e:
+            print(f"Error fetching profile photos: {str(e)}")
+            return []
+
+    async def fetch_image(self, image_path: str) -> Optional[bytes]:
+        """Fetch image data from storage."""
+        try:
+            response = self.supabase.storage.from_('photos').download(image_path)
+            return response
+        except Exception as e:
+            print(f"Error fetching image {image_path}: {str(e)}")
+            return None
+
+    async def sync_profile_embeddings(
         self,
-        items: List[Union[bytes, str]],  
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """Sync embeddings with current profile photos, creating new ones and deleting old ones."""
+        try:
+            print(f"Starting embedding sync for user {user_id}...")
+            
+            current_photo_paths = await self.fetch_profile_photos(user_id)
+            if not current_photo_paths:
+                print("No photos found in profile")
+                return {
+                    "photos_total": 0,
+                    "embeddings_deleted": 0,
+                    "embeddings_created": 0,
+                    "status": "success"
+                }
+                
+            print(f"Found {len(current_photo_paths)} photos in profile")
+
+            existing_embeddings = self.supabase.table("embeddings") \
+                .select('*') \
+                .eq('user_id', user_id) \
+                .like('embedding_type', 'photo_%') \
+                .execute()
+            
+            existing_paths = {
+                embed['photo_path']: embed
+                for embed in existing_embeddings.data
+                if embed.get('photo_path')
+            }
+
+            print(f"Found {len(existing_paths)} existing embeddings")
+
+            paths_to_delete = set(existing_paths.keys()) - set(current_photo_paths)
+            if paths_to_delete:
+                print(f"Deleting embeddings for {len(paths_to_delete)} removed photos...")
+                embedding_types_to_delete = [
+                    existing_paths[path]['embedding_type'] for path in paths_to_delete
+                ]
+                
+                try:
+                    delete_result = await self.delete_embeddings(
+                        user_id=user_id,
+                        embedding_types=embedding_types_to_delete
+                    )
+                    print(f"Deleted {len(delete_result) if delete_result else 0} embeddings")
+                except Exception as delete_error:
+                    print(f"Error deleting embeddings: {str(delete_error)}")
+
+            successful_creations = 0
+            
+            print(f"Processing {len(current_photo_paths)} photos...")
+            for idx, photo_path in enumerate(current_photo_paths):
+                try:
+                    print(f"Processing photo {idx + 1}/{len(current_photo_paths)}: {photo_path}")
+                    
+                    image_data = await self.fetch_image(photo_path)
+                    if not image_data:
+                        print(f"Skipping photo {photo_path} - failed to fetch data")
+                        continue
+                    
+                    image = Image.open(BytesIO(image_data))
+                    image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+                    
+                    with torch.no_grad():
+                        features = self.model.encode_image(image_input)
+                        embedding = features.cpu().numpy().flatten().tolist()
+                    
+                    embedding_type = f"photo_{idx}"  # Use unique embedding type for each photo
+                    
+                    await self.delete_embeddings(
+                        user_id=user_id,
+                        embedding_types=[embedding_type]
+                    )
+                    
+                    embedding_record = {
+                        "user_id": user_id,
+                        "embedding": embedding,
+                        "embedding_type": embedding_type,
+                        "data_type": "image",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "photo_path": photo_path
+                    }
+                    
+                    print(f"Storing/updating embedding for {embedding_type}")
+                    result = self.supabase.table("embeddings").upsert(
+                        embedding_record
+                    ).execute()
+                    
+                    if result.data:
+                        successful_creations += 1
+                        print(f"Successfully created embedding {embedding_type}")
+                    
+                except Exception as e:
+                    print(f"Error processing photo {idx}: {str(e)}")
+                    continue
+            
+            return {
+                "photos_total": len(current_photo_paths),
+                "embeddings_deleted": len(paths_to_delete),
+                "embeddings_created": successful_creations,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            print(f"Error in sync_profile_embeddings: {str(e)}")
+            raise Exception(f"Failed to sync profile embeddings: {str(e)}")
+    
+    async def delete_embeddings(
+        self,
+        user_id: str,
+        embedding_types: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Delete specific embeddings for a user."""
+        try:
+            result = self.supabase.table("embeddings") \
+                .delete() \
+                .eq('user_id', user_id) \
+                .in_('embedding_type', embedding_types) \
+                .execute()
+            
+            return result.data
+        except Exception as e:
+            print(f"Error deleting embeddings: {str(e)}")
+            return []
+    
+    async def create_text_embeddings(
+        self,
+        items: List[str],  
         user_id: str,
         agent_id: str,
         embedding_type: str,
         data_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Create and store CLIP embeddings for multiple items"""
+        """Create or update CLIP embeddings for multiple text items"""
         try:
-            print("Starting embedding creation...")
+            print("Starting text embedding creation/update...")
             embeddings_data = []
             
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
-                if isinstance(item, bytes): 
-                    try:
-                        print("Opening image from bytes...")
-                        image = Image.open(BytesIO(item))
-                        print(f"Image opened successfully: size={image.size}, mode={image.mode}")
-                        
-                        print("Preprocessing image...")
-                        image_input = self.preprocess(image).unsqueeze(0).to(self.device)
-                        
-                        print("Generating embedding...")
-                        with torch.no_grad():
-                            features = self.model.encode_image(image_input)
-                            embedding = features.cpu().numpy().flatten().tolist()
-                        print("Embedding generated successfully")
-                        
-                    except Exception as e:
-                        print(f"Error processing image: {str(e)}")
-                        raise Exception(f"Error processing image: {str(e)}")
-                else:  # Text
-                    # Process text and generate embedding
-                    text_input = clip.tokenize([item]).to(self.device)
-                        
-                    with torch.no_grad():
-                        features = self.model.encode_text(text_input)
-                        embedding = features.cpu().numpy().flatten().tolist()
-                        
                 
-                embeddings_data.append({
+                text_input = clip.tokenize([item]).to(self.device)
+                    
+                with torch.no_grad():
+                    features = self.model.encode_text(text_input)
+                    embedding = features.cpu().numpy().flatten().tolist()
+                
+                embedding_record = {
                     "user_id": user_id,
                     "agent_id": agent_id,
                     "embedding": embedding,
                     "embedding_type": embedding_type,
                     "data_type": data_type,
                     "created_at": datetime.utcnow().isoformat()
-                })
+                }
+                embeddings_data.append(embedding_record)
             
-            print("Storing embeddings in Supabase...")
-            result = self.supabase.table("embeddings").insert(embeddings_data).execute()
-            print("Embeddings stored successfully")
+            if not embeddings_data:
+                raise Exception("No valid embeddings were generated")
+            
+            print(f"Storing/updating {len(embeddings_data)} text embeddings in Supabase...")
+            result = self.supabase.table("embeddings").upsert(
+                embedding_record
+            ).execute()
+            print("Text embeddings stored/updated successfully")
             return result.data
             
         except Exception as e:
-            print(f"Error in create_embeddings: {str(e)}")
-            raise Exception(f"Failed to create embeddings: {str(e)}")
-        
+            print(f"Error in create_text_embeddings: {str(e)}")
+            raise Exception(f"Failed to create/update text embeddings: {str(e)}")
+
     async def get_profile_data(self, profile_id: str) -> Optional[Dict]:
         """Fetch profile data from Supabase."""
         try:
@@ -144,6 +283,7 @@ class EmbeddingManager:
     async def search_similar_responses(
         self,
         response: str,
+        user_id: str,
         agent_id: str,
         per_page: int = 10,
         filters: Optional[Dict] = None,
@@ -154,7 +294,6 @@ class EmbeddingManager:
             print(f"Query text: {response}")
             print(f"Filters: {filters}")
             
-            # Get embeddings for the query text
             text_input = clip.tokenize([response]).to(self.device)
             with torch.no_grad():
                 text_features = self.model.encode_text(text_input)
@@ -163,57 +302,33 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                # Check total records first
-                all_data = self.supabase.table('embeddings').select('*').execute()
-                print(f"Total records in embeddings table: {len(all_data.data)}")
+                query = self.supabase.table('embeddings').select('*')                
+                responses = query.execute()
+                total_records = len(responses.data) if responses.data else 0
+                print(f"Found {total_records} records after filtering")
                 
-                # Build query with filters
-                final_query = self.supabase.table('embeddings').select('*')
-                
-                # Add agent_id filter
-                final_query = final_query.eq('agent_id', agent_id)
-                
-                # # Add embedding_type filter if not specified
-                # if not filters or 'embedding_type' not in filters:
-                #     final_query = final_query.eq('embedding_type', 'text')
-                
-                # Add any additional filters
-                if filters:
-                    for key, value in filters.items():
-                        final_query = final_query.eq(key, value)
-                
-                # Execute final query
-                responses = final_query.execute()
-                print(f"Final filtered records: {len(responses.data)}")
-                
-                # Debug: Print sample record structure
-                if responses.data:
-                    print("Sample record structure:")
+                if responses.data and total_records > 0:
                     sample_record = responses.data[0]
-                    print(f"Keys available: {sample_record.keys()}")
+                    print(f"Sample record keys: {sample_record.keys()}")
                     if 'embedding' in sample_record:
                         print(f"Embedding type: {type(sample_record['embedding'])}")
-                        if isinstance(sample_record['embedding'], str):
-                            print("Embedding is stored as string, needs parsing")
-                
+
             except Exception as db_error:
                 print(f"Database query error: {str(db_error)}")
                 raise Exception(f"Database query failed: {str(db_error)}")
 
-            # Calculate similarities
             similarities = []
             for resp in responses.data:
                 try:
-                    # Get embedding and handle string format if needed
+                    if resp['user_id'] == user_id:
+                        continue
+
                     embedding = resp.get('embedding')
                     if isinstance(embedding, str):
                         try:
-                            # Try parsing as JSON string
-                            import json
                             embedding = json.loads(embedding)
                         except json.JSONDecodeError:
-                            # If not JSON, try parsing as string representation of list
-                            import ast
+                            # Try parsing as string representation of list
                             embedding = ast.literal_eval(embedding)
                     
                     if not embedding or not isinstance(embedding, (list, np.ndarray)):
@@ -228,26 +343,26 @@ class EmbeddingManager:
                         print(f"Skipping record {resp.get('user_id')} - shape mismatch: {query_array.shape} vs {resp_array.shape}")
                         continue
 
-                    # Calculate similarity
+                    # Calculate cosine similarity
                     similarity = float(np.dot(query_array, resp_array) / 
                                     (np.linalg.norm(query_array) * np.linalg.norm(resp_array)))
 
-                    similarities.append({
-                        'response_id': resp['user_id'],
-                        'similarity_score': similarity,
-                        'metadata': {
-                            'userId': resp['user_id'],
-                            'embedding_type': resp.get('embedding_type', ''),
-                            'data_type': resp.get('data_type', ''),
-                            'timestamp': resp['created_at'],
-                            'text': resp.get('text', '')
-                        },
-                        'relative_score': 0.0
-                    })
-                    print(f"Added similarity score {similarity:.4f} for user {resp['user_id']}")
+                    if similarity > 0.1:
+                        similarities.append({
+                            'response_id': resp['user_id'],
+                            'similarity_score': similarity,
+                            'metadata': {
+                                'userId': resp['user_id'],
+                                'embedding_type': resp.get('embedding_type', ''),
+                                'data_type': resp.get('data_type', ''),
+                                'timestamp': resp['created_at'],
+                                'text': resp.get('text', '')
+                            },
+                            'relative_score': 0.0
+                        })
+                        print(f"Added similarity score {similarity:.4f} for user {resp['user_id']}")
                 except Exception as e:
                     print(f"Error processing record {resp.get('user_id')}: {str(e)}")
-                    print(f"Embedding value: {embedding[:100] if embedding else None}...")
                     continue
 
             # Process results
@@ -255,13 +370,11 @@ class EmbeddingManager:
                 max_score = max(s['similarity_score'] for s in similarities)
                 mean_score = sum(s['similarity_score'] for s in similarities) / len(similarities)
                 print(f"Max similarity: {max_score:.4f}, Mean similarity: {mean_score:.4f}")
-
-                # Calculate relative scores and filter
+                
                 results = []
                 for s in similarities:
                     s['relative_score'] = float(s['similarity_score'] / max_score if max_score > 0 else 0.0)
-                    if s['relative_score'] >= 0.5:  # Lowered threshold for better recall
-                        results.append(s)
+                    results.append(s)
 
                 # Sort and limit results
                 results.sort(key=lambda x: x['similarity_score'], reverse=True)
@@ -281,8 +394,8 @@ class EmbeddingManager:
                     'mean_similarity': float(mean_score),
                     'query_response': response,
                     'debug_info': {
-                        'total_records': len(all_data.data),
-                        'final_filtered': len(responses.data)
+                        'total_records': total_records,
+                        'final_filtered': len(similarities)
                     }
                 }
             }
@@ -290,7 +403,7 @@ class EmbeddingManager:
         except Exception as e:
             print(f"Error in search_similar_responses: {str(e)}")
             raise Exception(f"Failed to search similar responses: {str(e)}")
-                
+                    
     async def generate_enhanced_similarity_message(
         self, 
         profile1_id: str, 
