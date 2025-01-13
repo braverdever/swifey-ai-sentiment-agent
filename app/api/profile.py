@@ -171,9 +171,12 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
     Get the current user's profile using their access token.
     """
     try:
-        # Get user profile from Supabase
         supabase = get_supabase()
-        response = supabase.from_("profiles").select("*").eq("id", user_id).single().execute()
+        response = supabase.from_("profiles").select("""
+            *,
+            profile_reviews(*),
+            review_history(*)
+        """).eq("id", user_id).single().execute()
         
         if not response.data:
             raise HTTPException(
@@ -183,10 +186,9 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
             
         return {
             "success": True,
-            "message": "Profile fetched successfully",
+            "message": "Profile fetched successfully", 
             "user": response.data
         }
-        
     except HTTPException as e:
         raise e
     except Exception as e:
