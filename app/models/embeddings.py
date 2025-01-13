@@ -188,9 +188,12 @@ class EmbeddingManager:
             print("Starting text embedding creation/update...")
             embeddings_data = []
             
-            await self.delete_embeddings(
-                user_id=user_id
-            )
+
+            existing_embeddings = self.supabase.table("embeddings") \
+                .select("*") \
+                .eq('user_id', user_id) \
+                .eq('embedding_type', embedding_type) \
+                .execute()
             
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
@@ -209,16 +212,20 @@ class EmbeddingManager:
                     "data_type": data_type,
                     "created_at": datetime.utcnow().isoformat()
                 }
+                
+                if existing_embeddings.data:
+                    embedding_record["id"] = existing_embeddings.data[0]["id"]
+                
                 embeddings_data.append(embedding_record)
             
             if not embeddings_data:
                 raise Exception("No valid embeddings were generated")
             
-            print(f"Storing/updating {len(embeddings_data)} text embeddings in Supabase...")
+            print(f"Updating {len(embeddings_data)} text embeddings in Supabase...")
             result = self.supabase.table("embeddings").upsert(
-                embeddings_data  # Fixed: Use the full list instead of single record
+                embeddings_data
             ).execute()
-            print("Text embeddings stored/updated successfully")
+            print("Text embeddings updated successfully")
             return result.data
             
         except Exception as e:
