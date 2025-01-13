@@ -323,7 +323,7 @@ class EmbeddingManager:
                     .select('*') \
                     .in_('id', user_ids) \
                     .in_('gender', preferred_genders) \
-                    .eq('verification_status', 'approved\n') \
+                    .eq('verification_status', 'approved') \
                     .execute()
                 
                 valid_user_ids = {profile['id'] for profile in profiles.data} if profiles.data else set()
