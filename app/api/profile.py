@@ -25,7 +25,7 @@ class UpdateProfileRequest(BaseModel):
     email: Optional[EmailStr] = None
     gender: Optional[str] = None
     photos: Optional[List[str]] = None
-    date_of_birth: Optional[date] = None
+    date_of_birth: Optional[str] = None
     location: Optional[Location] = None
     gender_preference: Optional[str] = None
     geographical_location: Optional[dict] = None
