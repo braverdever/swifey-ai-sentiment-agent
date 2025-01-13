@@ -8,6 +8,8 @@ import uuid
 from fastapi import UploadFile, File
 from typing import List
 import uuid
+import asyncio
+
 
 router = APIRouter()
 
@@ -53,6 +55,7 @@ class UserProfile(BaseModel):
     is_active: Optional[bool] = None
     verification_status: Optional[str] = None
     agent_id: Optional[str] = None
+    profile_reviews: Optional[List[Dict[str, Any]]] = None
 
 class ProfileResponse(BaseModel):
     success: bool
@@ -167,22 +170,29 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
     """
     try:
         supabase = get_supabase()
-        response = supabase.from_("profiles").select("""
-            *,
-            profile_reviews(*),
-            profile_reviews(*)
-        """).eq("id", user_id).single().execute()
         
-        if not response.data:
+        # Execute queries sequentially since parallel execution causes type issues
+        profile_response = supabase.from_("profiles").select("*").eq("id", user_id).single().execute()
+        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+
+        if not profile_response.data:
             raise HTTPException(
                 status_code=404,
                 detail="Profile not found"
             )
+
+        # Create a copy of the profile data to avoid modifying the response object
+        profile_data = dict(profile_response.data)
+        
+        # Add reviews data if profile exists
+        profile_data["profile_reviews"] = reviews_response.data
+
+        print(profile_data)
             
         return {
             "success": True,
             "message": "Profile fetched successfully", 
-            "user": response.data
+            "user": profile_data
         }
     except HTTPException as e:
         raise e
