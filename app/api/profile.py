@@ -32,6 +32,7 @@ class UpdateProfileRequest(BaseModel):
     selfie_url: Optional[str] = None
     matching_prompt: Optional[str] = None
     fcm_token: Optional[str] = None
+    agent_id: Optional[str] = None
 
 class UserProfile(BaseModel):
     id: str
