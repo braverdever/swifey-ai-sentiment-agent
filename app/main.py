@@ -149,6 +149,8 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/profile/matched_profiles",
         "/api/v1/chat/user_chats",
         "/api/v1/profile/get-signed-urls",
+        "/api/v1/embeddings/embed/texts",
+        "/api/v1/embeddings/search-similar-responses",
         "/docs",
         "/redoc",
         "/openapi.json",
