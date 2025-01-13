@@ -189,8 +189,7 @@ class EmbeddingManager:
             embeddings_data = []
             
             await self.delete_embeddings(
-                user_id=user_id,
-                embedding_types=[embedding_type]
+                user_id=user_id
             )
             
             for idx, item in enumerate(items):
