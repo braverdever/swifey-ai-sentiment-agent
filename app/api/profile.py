@@ -118,52 +118,6 @@ async def update_user_profile(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-
-
-@router.post("/new/photos")
-async def upload_photos(
-    files: List[UploadFile] = File(...),
-    user_id: str = Depends(verify_app_token)
-):
-    """
-    Upload photos to Supabase storage and return their IDs.
-    Requires a valid access token in Authorization header.
-    """
-    try:
-        supabase = get_supabase()
-        uploaded_ids = []
-        
-        for file in files:
-            # Generate unique ID for the file
-            file_id = str(uuid.uuid4())
-            file_path = f"{user_id}/{file_id}"
-            
-            # Read file content
-            content = await file.read()
-            
-            # Upload to Supabase storage
-            result = supabase.storage.from_("photos").upload(
-                file_path,
-                content,
-                {"content-type": file.content_type}
-            )
-            
-            uploaded_ids.append({
-                "id": file_id,
-                "path": file_path
-            })
-            
-        return {
-            "success": True,
-            "message": f"Successfully uploaded {len(uploaded_ids)} photos",
-            "photo_ids": uploaded_ids
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 
 @router.get("/me", response_model=ProfileResponse)
 async def get_my_profile(request: Request, user_id: str = Depends(verify_app_token)):
