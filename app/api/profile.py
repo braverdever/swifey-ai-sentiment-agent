@@ -28,7 +28,7 @@ class UpdateProfileRequest(BaseModel):
     date_of_birth: Optional[str] = None
     location: Optional[Location] = None
     gender_preference: Optional[List[str]] = None
-    geographical_location: Optional[dict] = None
+    geographical_location: Optional[str] = None
     selfie_url: Optional[str] = None
     matching_prompt: Optional[str] = None
     fcm_token: Optional[str] = None
