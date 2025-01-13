@@ -14,7 +14,6 @@ embedding_manager = EmbeddingManager()
 class SearchSimilarRequest(BaseModel):
     agent_id: str = Field(..., description="ID of the agent")
     response: str = Field(..., description="Response text to search for similarities")
-    user_id: str = Field(..., description="ID of the user")
     per_page: int = Field(default=10, ge=1, le=100, description="Number of results per page")
     filters: Optional[Dict] = Field(default=None, description="Additional filters to apply")
 
@@ -24,7 +23,6 @@ class SearchSimilarResponse(BaseModel):
 
 class TextEmbedRequest(BaseModel):
     texts: List[str]
-    user_id: str
     agent_id: str
     embedding_type: str
     data_type: Optional[str] = None
@@ -58,7 +56,7 @@ async def sync_profile_photos(request: ProfilePhotoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/search-similar-responses", response_model=SearchSimilarResponse)
-async def search_similar_responses(request: SearchSimilarRequest):
+async def search_similar_responses(request: SearchSimilarRequest, user_id: str = Depends(verify_app_token)):
     """Search for similar responses based on CLIP embeddings"""
     try:
         print(f"Received search request for agent_id: {request.agent_id}")
@@ -67,7 +65,7 @@ async def search_similar_responses(request: SearchSimilarRequest):
         result = await embedding_manager.search_similar_responses(
             response=request.response,
             agent_id=request.agent_id,
-            user_id=request.user_id,
+            user_id=user_id,
             per_page=request.per_page,
             filters=request.filters
         )
@@ -99,12 +97,12 @@ async def search_similar_responses(request: SearchSimilarRequest):
 #         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/embed/texts")
-async def create_text_embeddings(request: TextEmbedRequest):
+async def create_text_embeddings(request: TextEmbedRequest, user_id: str = Depends(verify_app_token)):
     """Create and store CLIP embeddings for multiple texts"""
     try:
         result = await embedding_manager.create_text_embeddings(
             items=request.texts,
-            user_id=request.user_id,
+            user_id=user_id,
             agent_id=request.agent_id,
             embedding_type=request.embedding_type,
             data_type=request.data_type
