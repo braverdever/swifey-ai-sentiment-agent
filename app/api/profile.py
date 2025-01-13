@@ -27,7 +27,7 @@ class UpdateProfileRequest(BaseModel):
     photos: Optional[List[str]] = None
     date_of_birth: Optional[str] = None
     location: Optional[Location] = None
-    gender_preference: Optional[str] = None
+    gender_preference: Optional[List[str]] = None
     geographical_location: Optional[dict] = None
     selfie_url: Optional[str] = None
     matching_prompt: Optional[str] = None
