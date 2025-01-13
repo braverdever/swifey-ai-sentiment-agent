@@ -30,6 +30,40 @@ class ChatListResponse(BaseModel):
     message: str
     chats: List[ChatPreview]
 
+class Message(BaseModel):
+    message_id: str
+    sender_id: str
+    recipient_id: str
+    content: Optional[str]
+    sent_at: datetime
+    edited_at: Optional[datetime]
+    status: str
+    metadata: Dict[str, Any]
+    audio_message_id: Optional[str]
+    message_type: str
+    audio_id: Optional[str]
+    title: Optional[str]
+    duration: Optional[int]
+    audio_url: Optional[str]
+    thumbnail_url: Optional[str]
+
+class ChatMessagesResponse(BaseModel):
+    success: bool
+    message: str
+    messages: List[Message]
+
+class AudioClip(BaseModel):
+    audio_id: str  # Changed from 'id' to match response
+    title: str
+    duration: int
+    audio_url: str
+    thumbnail_url: Optional[str]
+
+class AudioClipsResponse(BaseModel):
+    success: bool
+    message: str
+    audio_clips: List[AudioClip]
+
 def get_agent_system() -> AgentSystem:
     """Dependency to get the agent system instance."""
     from ..config import settings
@@ -234,4 +268,49 @@ async def get_user_chats(user_id: str = Depends(verify_app_token)):
             "chats": response.data
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/chat_messages", response_model=ChatMessagesResponse)
+async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_app_token), before_timestamp: Optional[datetime] = None, page_size: int = 50):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("get_direct_messages", {
+            'user1_uuid': other_user_id,
+            'user2_uuid': user_id,
+            'before_timestamp': before_timestamp,
+            'page_size': page_size
+        }).execute()
+
+        if response is None:
+            return {
+                "success": True,
+                "message": "No chat messages found",
+                "messages": []
+            }
+            
+        return {
+            "success": True,
+            "message": "Chat messages fetched successfully",
+            "messages": response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/get_audio_clips", response_model=AudioClipsResponse)
+async def get_audio_clips(user_id: str = Depends(verify_app_token)):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("get_all_audio_clips").execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No audio clips found",
+                "audio_clips": []
+            }
+        return {
+            "success": True,
+            "message": "Audio clips fetched successfully",
+            "audio_clips": response.data
+        }
+    except Exception as e:  
         raise HTTPException(status_code=500, detail=str(e))

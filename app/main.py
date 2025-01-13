@@ -155,6 +155,9 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
         "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
         "/api/v1/turnkey/initotp",
+        "/api/v1/embeddings/create_user_ai_data",
+        "/api/v1/chat/chat_messages",
+        "/api/v1/chat/get_audio_clips",
         "/api/v1/turnkey/verifyotp",
     ]
     
