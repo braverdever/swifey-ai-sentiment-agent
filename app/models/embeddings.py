@@ -186,15 +186,19 @@ class EmbeddingManager:
         """Create or update CLIP embeddings for multiple text items"""
         try:
             print("Starting text embedding creation/update...")
-            embeddings_data = []
             
-
-            existing_embeddings = self.supabase.table("embeddings") \
-                .select("*") \
+            # First, delete any existing embeddings with the same criteria
+            delete_result = self.supabase.table("embeddings") \
+                .delete() \
                 .eq('user_id', user_id) \
+                .eq('agent_id', agent_id) \
+                .eq('data_type', data_type) \
                 .eq('embedding_type', embedding_type) \
                 .execute()
             
+            print(f"Deleted {len(delete_result.data) if delete_result.data else 0} existing embeddings")
+            
+            embeddings_data = []
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
                 
@@ -213,19 +217,16 @@ class EmbeddingManager:
                     "created_at": datetime.utcnow().isoformat()
                 }
                 
-                if existing_embeddings.data:
-                    embedding_record["id"] = existing_embeddings.data[0]["id"]
-                
                 embeddings_data.append(embedding_record)
             
             if not embeddings_data:
                 raise Exception("No valid embeddings were generated")
             
-            print(f"Updating {len(embeddings_data)} text embeddings in Supabase...")
-            result = self.supabase.table("embeddings").upsert(
+            print(f"Inserting {len(embeddings_data)} new text embeddings in Supabase...")
+            result = self.supabase.table("embeddings").insert(
                 embeddings_data
             ).execute()
-            print("Text embeddings updated successfully")
+            print("Text embeddings created successfully")
             return result.data
             
         except Exception as e:
