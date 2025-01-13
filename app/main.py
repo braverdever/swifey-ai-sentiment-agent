@@ -117,8 +117,15 @@ def get_application() -> FastAPI:
             "redoc_url": "/redoc"
         }
 
-    return app
+    
 
+    @app.get("/fetch-configuration")
+    async def fetch_configuration():
+        return { "shouldShowWaitlist": False, 
+        "audioEnabled": False, "aiAgentEnabled": True, "webUrl": 'https://swifey-web-sigma.vercel.app' }
+
+
+    return app
 
 app = get_application()
 
@@ -143,12 +150,15 @@ async def auth_middleware_handler(request: Request, call_next):
     """Authentication middleware."""
     public_paths = [
         "/",
+        "/fetch-configuration",
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
         "/api/v1/profile/me",
         "/api/v1/profile/matched_profiles",
         "/api/v1/chat/user_chats",
         "/api/v1/profile/get-signed-urls",
+        "/api/v1/embeddings/embed/texts",
+        "/api/v1/embeddings/search-similar-responses",
         "/docs",
         "/redoc",
         "/openapi.json",
