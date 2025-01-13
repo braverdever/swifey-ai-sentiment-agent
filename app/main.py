@@ -17,7 +17,7 @@ from .api.turnkey import router as turnkey_router
 from .api.notification import router as notification_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
-
+from .api.ai_coach import router as ai_coach_router
 
 def get_application() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -92,7 +92,11 @@ def get_application() -> FastAPI:
         prefix="/api/v1/webhooks",
         tags=["webhooks"]
     )
-
+    app.include_router(
+        ai_coach_router,
+        prefix="/api/v1/ai-coach",
+        tags=["ai-coach"]
+    )
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request,
@@ -162,6 +166,9 @@ async def auth_middleware_handler(request: Request, call_next):
         "/docs",
         "/redoc",
         "/openapi.json",
+        "/api/v1/ai-coach",
+        "/api/v1/ai-coach/{coach_id}",
+        "/api/v1/profile/get-approved-profiles-count",
         "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
         "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
         "/api/v1/turnkey/initotp",

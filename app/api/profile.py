@@ -269,3 +269,17 @@ async def get_signed_urls(
             status_code=500,
             detail=f"Error generating signed URLs: {str(e)}"
         )
+
+@router.get("/get-approved-profiles-count")
+async def get_approved_profiles_count(user_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        response = supabase.from_("profiles").select("*").eq("verification_status", "approved").execute()
+        
+        return {
+            "success": True,
+            "count": len(response.data) if response.data is not None else 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
