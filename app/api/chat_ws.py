@@ -1,12 +1,57 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, List
 from pydantic import BaseModel
 import json
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
 from ..api.utils.notification import send_notification
+from ..core.agent_system import AgentSystem
+from ..models import api as models
 
 router = APIRouter()
+
+def get_agent_system() -> AgentSystem:
+    """Dependency to get the agent system instance."""
+    from ..config import settings
+    
+    try:
+        agent = AgentSystem(
+            redis_host=settings.REDIS_HOST,
+            redis_port=settings.REDIS_PORT,
+            cache_ttl=settings.REDIS_CACHE_TTL,
+            flush_interval=settings.FLUSH_INTERVAL,
+            buffer_size=settings.BUFFER_SIZE
+        )
+        return agent
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize agent system: {str(e)}"
+        )
+
+async def generate_truth_bomb(messages: List[dict], agent: AgentSystem) -> str:
+    """Generate a truth bomb based on conversation analysis."""
+    try:
+        # Convert messages to the format expected by the agent
+        formatted_messages = [
+            models.Message(
+                sender=msg.get("sender_id"),
+                content=msg.get("content"),
+                timestamp=msg.get("sent_at")
+            ) for msg in messages
+        ]
+        
+        analysis = agent.analyze_conversation(formatted_messages)
+        truth_bomb = analysis.get("truth_bomb")
+        
+        if not truth_bomb or not isinstance(truth_bomb, str):
+            truth_bomb = "How's the conversation going?"
+            
+        return truth_bomb
+        
+    except Exception as e:
+        print(f"Error generating truth bomb: {e}")
+        return "How's the conversation going?"
 
 # Store active connections
 class ConnectionManager:
@@ -36,10 +81,12 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 class ChatMessage(BaseModel):
-    type: str  # message, typing, etc.
+    type: str  # message, typing, truth_bomb_init, truth_bomb_approved
     conversation_id: str  # receiver's user_id
     content: Optional[str] = None
     message_type: Optional[str] = None  # text, image, etc.
+    messages: Optional[List[dict]] = None  # For truth bomb init
+    truth_bomb_id: Optional[str] = None  # For truth bomb approval
 
 @router.websocket("/chat")
 async def chat_websocket(
@@ -64,7 +111,93 @@ async def chat_websocket(
                 # Parse the message
                 chat_message = ChatMessage(**message_data)
                 
-                if chat_message.type == "message":
+                if chat_message.type == "truth_bomb_init":
+                    try:
+                        # Get agent system
+                        agent = get_agent_system()
+                        
+                        # Generate truth bomb
+                        truth_bomb_text = await generate_truth_bomb(chat_message.messages, agent)
+                        
+                        # Store in database with user IDs in ascending order
+                        supabase = get_supabase()
+                        user_ids = sorted([user_id, chat_message.conversation_id])
+                        
+                        result = supabase.from_("truth_bombs").insert({
+                            "user_id1": user_ids[0],
+                            "user_id2": user_ids[1],
+                            "truth_bomb": truth_bomb_text,
+                            "approve1": False,
+                            "approve2": False,
+                            "status": True  # Active truth bomb
+                        }).execute()
+                        
+                        if not result.data:
+                            raise Exception("Failed to store truth bomb")
+                            
+                        truth_bomb_id = result.data[0]["id"]
+                        
+                        # Send truth bomb init notification to both users
+                        init_payload = {
+                            "type": "truth_bomb_init",
+                            "truth_bomb_id": truth_bomb_id
+                        }
+                        
+                        # Send to both users
+                        await manager.send_message(user_id, init_payload)
+                        await manager.send_message(chat_message.conversation_id, init_payload)
+                        
+                    except Exception as e:
+                        print(f"Failed to process truth bomb init: {str(e)}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Failed to generate truth bomb"
+                        })
+                        
+                elif chat_message.type == "truth_bomb_approved":
+                    try:
+                        supabase = get_supabase()
+                        
+                        # Get the truth bomb
+                        truth_bomb = supabase.from_("truth_bombs").select("*").eq("id", chat_message.truth_bomb_id).single().execute()
+                        
+                        if not truth_bomb.data:
+                            raise Exception("Truth bomb not found")
+                            
+                        # Determine which approval to update based on user ID order
+                        user_ids = sorted([truth_bomb.data["user_id1"], truth_bomb.data["user_id2"]])
+                        is_user1 = user_id == user_ids[0]
+                        
+                        # Update the appropriate approval field
+                        update_data = {"approve1": True} if is_user1 else {"approve2": True}
+                        result = supabase.from_("truth_bombs").update(update_data).eq("id", chat_message.truth_bomb_id).execute()
+                        
+                        if not result.data:
+                            raise Exception("Failed to update approval")
+                            
+                        # Check if both approved
+                        updated_bomb = result.data[0]
+                        if updated_bomb["approve1"] and updated_bomb["approve2"]:
+                            # Send truth bomb to both users and mark as inactive
+                            truth_bomb_payload = {
+                                "type": "truth_bomb",
+                                "content": updated_bomb["truth_bomb"]
+                            }
+                            
+                            await manager.send_message(updated_bomb["user_id1"], truth_bomb_payload)
+                            await manager.send_message(updated_bomb["user_id2"], truth_bomb_payload)
+                            
+                            # Mark truth bomb as inactive
+                            supabase.from_("truth_bombs").update({"status": False}).eq("id", chat_message.truth_bomb_id).execute()
+                            
+                    except Exception as e:
+                        print(f"Failed to process truth bomb approval: {str(e)}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Failed to process truth bomb approval"
+                        })
+                
+                elif chat_message.type == "message":
                     try:
                         # Store message in database first
                         supabase = get_supabase()
@@ -145,10 +278,6 @@ async def chat_websocket(
                             "type": "error",
                             "message": "Failed to process message"
                         })
-                
-                # Handle other message types here
-                # elif chat_message.type == "typing":
-                #     ...
                 
         except WebSocketDisconnect:
             await manager.disconnect(user_id)
