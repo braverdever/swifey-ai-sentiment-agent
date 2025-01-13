@@ -92,7 +92,10 @@ async def update_user_profile(
 ):
     """
     Update user profile details.
-    Requires a valid access token in Authorization header.
+    For name, bio, and photos:
+    - If they were previously null/empty, update directly
+    - If they already had values, create review entries
+    Other fields are updated directly.
     """
     try:
         supabase = get_supabase()
@@ -102,19 +105,57 @@ async def update_user_profile(
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
-            
-        # Update the profile
-        result = supabase.table("profiles").update(
-            update_data
-        ).eq("id", user_id).execute()
+
+        # Get current profile data
+        current_profile = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
         
-        if not result.data:
+        if not current_profile.data:
             raise HTTPException(status_code=404, detail="Profile not found")
+
+        # Fields that need review after initial setup
+        review_fields = {"name", "bio", "photos"}
+        direct_update_data = {}
+        review_entries = []
+
+        for field, new_value in update_data.items():
+            if field in review_fields:
+                current_value = current_profile.data.get(field)
+                
+                # If current value is None/empty, update directly
+                if current_value is None or current_value == "" or (isinstance(current_value, list) and len(current_value) == 0):
+                    direct_update_data[field] = new_value
+                else:
+                    # Create review entry
+                    review_entries.append({
+                        "id": str(uuid.uuid4()),
+                        "profile_id": user_id,
+                        "attribute": field,
+                        "current_value": str(current_value),
+                        "proposed_value": str(new_value),
+                        "review_status": "pending",
+                        "created_at": "now()",
+                    })
+            else:
+                # Other fields update directly
+                direct_update_data[field] = new_value
+
+        # Perform direct updates if any
+        if direct_update_data:
+            result = supabase.table("profiles").update(
+                direct_update_data
+            ).eq("id", user_id).execute()
+
+        # Create review entries if any
+        if review_entries:
+            supabase.table("profile_reviews").insert(review_entries).execute()
+
+        # Get updated profile
+        updated_profile = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
             
         return {
             "success": True,
-            "message": "Profile updated successfully",
-            "profile": result.data[0]
+            "message": "Profile update processed successfully",
+            "profile": updated_profile.data
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
