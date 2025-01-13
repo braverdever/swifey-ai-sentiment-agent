@@ -1,116 +1,158 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-from typing import Dict, Set
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from typing import Dict, Set, Optional
+from pydantic import BaseModel
 import json
-from datetime import datetime
 from ..auth.middleware import verify_app_token
+from ..db.supabase import get_supabase
+from ..api.utils.notification import send_notification
 
 router = APIRouter()
 
-class ChatConnectionManager:
+# Store active connections
+class ConnectionManager:
     def __init__(self):
-        # Store active chat connections: user_id -> Set[WebSocket]
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        # Map of user_id to their WebSocket connection
+        self.active_connections: Dict[str, WebSocket] = {}
         
     async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()
-        if user_id not in self.active_connections:
-            self.active_connections[user_id] = set()
-        self.active_connections[user_id].add(websocket)
+        self.active_connections[user_id] = websocket
+        print(f"User {user_id} connected. Total connections: {len(self.active_connections)}")
         
-    def disconnect(self, websocket: WebSocket, user_id: str):
+    async def disconnect(self, user_id: str):
         if user_id in self.active_connections:
-            self.active_connections[user_id].discard(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
-                
-    async def send_personal_message(self, message: dict, websocket: WebSocket):
-        await websocket.send_json(message)
-        
-    async def send_to_user(self, message: dict, target_user_id: str):
-        """Send message to a specific user's all active connections"""
-        if target_user_id in self.active_connections:
-            for connection in self.active_connections[target_user_id]:
-                await connection.send_json(message)
-
-chat_manager = ChatConnectionManager()
-
-async def get_token(websocket: WebSocket) -> str:
-    """Extract and verify token from WebSocket query params"""
-    try:
-        token = websocket.query_params.get("token")
-        if not token:
-            raise HTTPException(status_code=401, detail="No token provided")
+            del self.active_connections[user_id]
+            print(f"User {user_id} disconnected. Total connections: {len(self.active_connections)}")
             
-        # Verify token and get user_id
-        user_id = await verify_app_token(type("Request", (), {"headers": {"Authorization": f"Bearer {token}"}})())
-        return user_id
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    async def send_message(self, user_id: str, message: dict):
+        if user_id in self.active_connections:
+            await self.active_connections[user_id].send_json(message)
+            return True
+        return False
 
-@router.websocket("/chat/{conversation_id}")
-async def chat_websocket_endpoint(websocket: WebSocket, conversation_id: str):
-    """
-    WebSocket endpoint for chat functionality.
-    Requires token in query params for authentication.
-    """
+    def is_connected(self, user_id: str) -> bool:
+        return user_id in self.active_connections
+
+manager = ConnectionManager()
+
+class ChatMessage(BaseModel):
+    type: str  # message, typing, etc.
+    conversation_id: str  # receiver's user_id
+    content: Optional[str] = None
+    message_type: Optional[str] = None  # text, image, etc.
+
+@router.websocket("/chat")
+async def chat_websocket(
+    websocket: WebSocket,
+    token: str
+):
     try:
-        # Authenticate user
-        user_id = await get_token(websocket)
+        # Create a Request-like object with headers
+        mock_request = type('Request', (), {'headers': {'Authorization': f'Bearer {token}'}})()
         
-        # Accept connection and add to manager
-        await chat_manager.connect(websocket, user_id)
+        # Verify token and get user_id
+        user_id = await verify_app_token(mock_request)
         
-        # Send connection confirmation
-        await chat_manager.send_personal_message(
-            {
-                "type": "chat_connected",
-                "conversation_id": conversation_id,
-                "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat()
-            },
-            websocket
-        )
+        await manager.connect(websocket, user_id)
         
         try:
             while True:
-                # Wait for messages
                 data = await websocket.receive_text()
-                message = json.loads(data)
+                message_data = json.loads(data)
+                print(f"Received message data: {message_data}")
                 
-                # Add metadata to message
-                message.update({
-                    "conversation_id": conversation_id,
-                    "from_user_id": user_id,
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+                # Parse the message
+                chat_message = ChatMessage(**message_data)
                 
-                # Handle chat message
-                if "to_user_id" in message:
-                    # Send to specific user
-                    await chat_manager.send_to_user(message, message["to_user_id"])
-                    # Also send confirmation back to sender
-                    await chat_manager.send_personal_message(
-                        {
+                if chat_message.type == "message":
+                    try:
+                        # Store message in database first
+                        supabase = get_supabase()
+                        message_data = {
+                            "sender_id": user_id,
+                            "recipient_id": chat_message.conversation_id,
+                            "content": chat_message.content,
+                            "message_type": chat_message.message_type or "text"
+                        }
+                        print(f"Storing message: {message_data}")
+                        
+                        result = supabase.from_("direct_messages").insert(message_data).execute()
+                        print(f"Database response: {result.data}")
+                        
+                        if not result.data:
+                            raise Exception("No data returned from message insert")
+                            
+                        stored_message = result.data[0]
+                        print(f"Stored message: {stored_message}")
+                        
+                        # Create message payload
+                        message_payload = {
+                            "type": "message",
+                            "sender_id": user_id,
+                            "content": chat_message.content,
+                            "message_type": chat_message.message_type or "text",
+                            "conversation_id": chat_message.conversation_id,
+                            "message_id": stored_message.get("id")
+                        }
+                        print(f"Created message payload: {message_payload}")
+                        
+                        # Send acknowledgment to sender
+                        ack_payload = {
                             "type": "message_sent",
-                            "message_id": message.get("message_id"),
-                            "timestamp": datetime.utcnow().isoformat()
-                        },
-                        websocket
-                    )
-                else:
-                    await chat_manager.send_personal_message(
-                        {
+                            "status": "success",
+                            "message_id": stored_message.get("id"),
+                            "timestamp": stored_message.get("created_at")
+                        }
+                        print(f"Sending acknowledgment: {ack_payload}")
+                        await websocket.send_json(ack_payload)
+                        
+                        # Try to send to receiver if connected
+                        if manager.is_connected(chat_message.conversation_id):
+                            print(f"Receiver {chat_message.conversation_id} is connected, sending message")
+                            await manager.send_message(chat_message.conversation_id, message_payload)
+                        else:
+                            print(f"Receiver {chat_message.conversation_id} is not connected, trying FCM")
+                            # Fallback to FCM notification if receiver not connected
+                            try:
+                                # Get receiver's FCM token from Supabase
+                                receiver = supabase.from_("profiles").select("fcm_token").eq("id", chat_message.conversation_id).single().execute()
+                                print(f"Receiver FCM data: {receiver.data}")
+                                
+                                # Only attempt to send notification if FCM token exists
+                                if receiver.data and receiver.data.get("fcm_token"):
+                                    notification_data = {
+                                        "type": "chat_message",
+                                        "sender_id": user_id,
+                                        "conversation_id": chat_message.conversation_id,
+                                        "message_id": stored_message.get("id")
+                                    }
+                                    print(f"Sending FCM notification: {notification_data}")
+                                    await send_notification(
+                                        token=receiver.data["fcm_token"],
+                                        title="New Message",
+                                        body=chat_message.content[:100],  # Truncate long messages
+                                        data=notification_data
+                                    )
+                            except Exception as e:
+                                # Log notification error but don't stop message processing
+                                print(f"Failed to send notification: {str(e)}")
+                                
+                    except Exception as e:
+                        print(f"Failed to process message: {str(e)}")
+                        print(f"Error details: {type(e).__name__}, {str(e)}")
+                        # Send error message back to sender
+                        await websocket.send_json({
                             "type": "error",
-                            "message": "Missing recipient (to_user_id)",
-                            "timestamp": datetime.utcnow().isoformat()
-                        },
-                        websocket
-                    )
-                    
+                            "message": "Failed to process message"
+                        })
+                
+                # Handle other message types here
+                # elif chat_message.type == "typing":
+                #     ...
+                
         except WebSocketDisconnect:
-            chat_manager.disconnect(websocket, user_id)
+            await manager.disconnect(user_id)
             
-    except HTTPException as e:
-        await websocket.close(code=1008, reason=str(e.detail))
     except Exception as e:
-        await websocket.close(code=1011, reason=str(e)) 
+        print(f"WebSocket error: {str(e)}")
+        await websocket.close() 
