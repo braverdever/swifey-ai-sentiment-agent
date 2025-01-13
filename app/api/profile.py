@@ -175,7 +175,7 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
         response = supabase.from_("profiles").select("""
             *,
             profile_reviews(*),
-            review_history(*)
+            profile_reviews(*)
         """).eq("id", user_id).single().execute()
         
         if not response.data:
