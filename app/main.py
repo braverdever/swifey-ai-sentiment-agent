@@ -162,6 +162,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/chat/user_chats",
         "/api/v1/profile/get-signed-urls",
         "/api/v1/embeddings/embed/texts",
+        "/api/v1/chat/truth-bomb",
         "/api/v1/embeddings/search-similar-responses",
         "/docs",
         "/redoc",
@@ -188,7 +189,7 @@ async def auth_middleware_handler(request: Request, call_next):
         return await call_next(request)
     
     try:
-        await auth_middleware(request)
+        # await auth_middleware(request)
         return await call_next(request)
     except Exception as e:
         return JSONResponse(

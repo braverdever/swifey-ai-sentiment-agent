@@ -186,8 +186,19 @@ class EmbeddingManager:
         """Create or update CLIP embeddings for multiple text items"""
         try:
             print("Starting text embedding creation/update...")
-            embeddings_data = []
             
+            # First, delete any existing embeddings with the same criteria
+            delete_result = self.supabase.table("embeddings") \
+                .delete() \
+                .eq('user_id', user_id) \
+                .eq('agent_id', agent_id) \
+                .eq('data_type', data_type) \
+                .eq('embedding_type', embedding_type) \
+                .execute()
+            
+            print(f"Deleted {len(delete_result.data) if delete_result.data else 0} existing embeddings")
+            
+            embeddings_data = []
             for idx, item in enumerate(items):
                 print(f"Processing item {idx + 1}/{len(items)}")
                 
@@ -205,16 +216,17 @@ class EmbeddingManager:
                     "data_type": data_type,
                     "created_at": datetime.utcnow().isoformat()
                 }
+                
                 embeddings_data.append(embedding_record)
             
             if not embeddings_data:
                 raise Exception("No valid embeddings were generated")
             
-            print(f"Storing/updating {len(embeddings_data)} text embeddings in Supabase...")
-            result = self.supabase.table("embeddings").upsert(
-                embedding_record
+            print(f"Inserting {len(embeddings_data)} new text embeddings in Supabase...")
+            result = self.supabase.table("embeddings").insert(
+                embeddings_data
             ).execute()
-            print("Text embeddings stored/updated successfully")
+            print("Text embeddings created successfully")
             return result.data
             
         except Exception as e:
@@ -225,7 +237,7 @@ class EmbeddingManager:
         """Fetch profile data from Supabase."""
         try:
             response = self.supabase.table('profiles') \
-                .select('id, name, bio, gender, location, matching_prompt, selfie_url') \
+                .select('id, name, bio, gender, location, matching_prompt, photos, verification_status') \
                 .eq('id', profile_id) \
                 .single() \
                 .execute()
@@ -285,7 +297,7 @@ class EmbeddingManager:
         response: str,
         user_id: str,
         agent_id: str,
-        per_page: int = 10,
+        per_page: int = 20,
         filters: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """Search for similar responses based on CLIP embeddings"""
@@ -302,8 +314,28 @@ class EmbeddingManager:
             print(f"Generated query embedding shape: {len(query_embedding)}")
 
             try:
-                query = self.supabase.table('embeddings').select('*')                
+                user_preferences = self.supabase.table('profiles') \
+                    .select('gender_preference') \
+                    .eq('id', user_id) \
+                    .single() \
+                    .execute()
+              
+                preferred_genders = user_preferences.data.get('gender_preference', []) if user_preferences.data else []
+                
+                query = self.supabase.table('embeddings').select('*')
                 responses = query.execute()
+                
+                user_ids = list(set(resp['user_id'] for resp in responses.data if 'user_id' in resp))                
+                profiles = self.supabase.table('profiles') \
+                    .select('*') \
+                    .in_('id', user_ids) \
+                    .in_('gender', preferred_genders) \
+                    .eq('verification_status', 'approved') \
+                    .execute()
+                
+                valid_user_ids = {profile['id'] for profile in profiles.data} if profiles.data else set()
+                print(f"Valid user IDs: {valid_user_ids}")
+                
                 total_records = len(responses.data) if responses.data else 0
                 print(f"Found {total_records} records after filtering")
                 
@@ -320,7 +352,7 @@ class EmbeddingManager:
             similarities = []
             for resp in responses.data:
                 try:
-                    if resp['user_id'] == user_id:
+                    if resp['user_id'] == user_id or resp['user_id'] not in valid_user_ids:
                         continue
 
                     embedding = resp.get('embedding')
@@ -365,8 +397,19 @@ class EmbeddingManager:
                     print(f"Error processing record {resp.get('user_id')}: {str(e)}")
                     continue
 
-            # Process results
             if similarities:
+                user_ids = list(set(s['response_id'] for s in similarities))
+                
+                profiles_response = self.supabase.table('profiles') \
+                    .select('id, name, bio, gender, location, matching_prompt, photos, verification_status') \
+                    .in_('id', user_ids) \
+                    .execute()
+                
+                profiles_lookup = {
+                    profile['id']: profile 
+                    for profile in profiles_response.data
+                } if profiles_response.data else {}
+
                 max_score = max(s['similarity_score'] for s in similarities)
                 mean_score = sum(s['similarity_score'] for s in similarities) / len(similarities)
                 print(f"Max similarity: {max_score:.4f}, Mean similarity: {mean_score:.4f}")
@@ -374,12 +417,14 @@ class EmbeddingManager:
                 results = []
                 for s in similarities:
                     s['relative_score'] = float(s['similarity_score'] / max_score if max_score > 0 else 0.0)
+                    # Add profile data to each result
+                    s['profile'] = profiles_lookup.get(s['response_id'], {})
                     results.append(s)
 
                 # Sort and limit results
                 results.sort(key=lambda x: x['similarity_score'], reverse=True)
                 results = results[:per_page]
-                print(f"Returning {len(results)} results")
+                print(f"Returning {len(results)} results with profiles")
             else:
                 results = []
                 max_score = mean_score = 0.0
