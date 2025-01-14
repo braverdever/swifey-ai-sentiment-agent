@@ -93,6 +93,11 @@ class ProfileCountResponse(BaseModel):
     message: str
     count: int
 
+class WeMet(BaseModel):
+    user_1: str
+    user_2: str
+    we_met_on_this_day: Optional[str] = None
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -321,4 +326,35 @@ async def get_approved_profiles_count(user_id: str = Depends(verify_app_token)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/we-met", response_model=dict)
+async def record_we_met(
+    request: WeMet
+):
+    """
+    Record when two users meet in person.
+    request.user_1 is the first user and request.user_2 is the second user.
+    """
+    try:
+        supabase = get_supabase()
+        
+        we_met_data = {
+            "user_1": request.user_1,
+            "user_2": request.user_2,
+            "created_at": "now()"  
+        }
+
+        response = supabase.table("we_met").insert(we_met_data).execute()
+
+        return {
+            "success": True,
+            "message": "Meeting recorded successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error recording meeting: {str(e)}"
+        )
 

@@ -157,6 +157,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/fetch-configuration",
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
+        "/api/v1/profile/we-met",
         "/api/v1/profile/me",
         "/api/v1/profile/matched_profiles",
         "/api/v1/chat/user_chats",
@@ -170,8 +171,8 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/ai-coach",
         "/api/v1/ai-coach/{coach_id}",
         "/api/v1/profile/get-approved-profiles-count",
-        "/api/v1/webhooks/profiles",  # Allow webhook endpoint without auth
-        "/api/v1/webhooks/metrics",  # Allow metrics webhook endpoint without auth
+        "/api/v1/webhooks/profiles",
+        "/api/v1/webhooks/metrics",  
         "/api/v1/turnkey/initotp",
         "/api/v1/embeddings/create_user_ai_data",
         "/api/v1/chat/chat_messages",
@@ -189,7 +190,7 @@ async def auth_middleware_handler(request: Request, call_next):
         return await call_next(request)
     
     try:
-        # await auth_middleware(request)
+        await auth_middleware(request)
         return await call_next(request)
     except Exception as e:
         return JSONResponse(
