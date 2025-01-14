@@ -1,5 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
-from typing import Dict, Set, Optional, List
+from typing import Dict, Set, Optional, List, Union
 from pydantic import BaseModel
 import json
 from ..auth.middleware import verify_app_token
@@ -82,11 +82,20 @@ manager = ConnectionManager()
 
 class ChatMessage(BaseModel):
     type: str  # message, typing, truth_bomb_init, truth_bomb_approved
-    conversation_id: str  # receiver's user_id
+    conversation_id: Optional[str] = None  # receiver's user_id, optional for truth_bomb_approved
     content: Optional[str] = None
     message_type: Optional[str] = None  # text, image, etc.
     messages: Optional[List[dict]] = None  # For truth bomb init
-    truth_bomb_id: Optional[str] = None  # For truth bomb approval
+    truth_bomb_id: Optional[Union[str, int]] = None  # For truth bomb approval, can be string or int
+
+    def model_post_init(self, *args, **kwargs):
+        super().model_post_init(*args, **kwargs)
+        # Ensure conversation_id is present for message and truth_bomb_init types
+        if self.type in ["message", "truth_bomb_init"] and not self.conversation_id:
+            raise ValueError("conversation_id is required for message and truth_bomb_init types")
+        # Convert truth_bomb_id to string if it's an integer
+        if self.truth_bomb_id is not None:
+            self.truth_bomb_id = str(self.truth_bomb_id)
 
 @router.websocket("/chat")
 async def chat_websocket(
@@ -113,6 +122,21 @@ async def chat_websocket(
                 
                 if chat_message.type == "truth_bomb_init":
                     try:
+                        # Check for active truth bombs first
+                        supabase = get_supabase()
+                        user_ids = sorted([user_id, chat_message.conversation_id])
+                        
+                        # Query for active truth bombs between these users
+                        active_bombs = supabase.from_("truth_bombs").select("*").eq("user_id1", user_ids[0]).eq("user_id2", user_ids[1]).eq("status", True).execute()
+                        
+                        if active_bombs.data and len(active_bombs.data) > 0:
+                            # There is an active truth bomb, send message back to sender
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "There is already an active truth bomb for this conversation"
+                            })
+                            return
+                            
                         # Get agent system
                         agent = get_agent_system()
                         
