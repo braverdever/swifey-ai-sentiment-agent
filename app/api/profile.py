@@ -98,6 +98,11 @@ class WeMet(BaseModel):
     user_2: str
     we_met_on_this_day: Optional[str] = None
 
+class InviteCode(BaseModel):
+    code: str
+    profile_id: str
+    status: Optional[str] = "active"
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -356,5 +361,37 @@ async def record_we_met(
         raise HTTPException(
             status_code=500,
             detail=f"Error recording meeting: {str(e)}"
+        )
+
+@router.post("/invite-code", response_model=dict)
+async def create_invite_code(
+    request: InviteCode,
+):
+    """
+    Create and store an invite code for a user.
+    The code is automatically generated and associated with the user's profile.
+    """
+    try:
+        supabase = get_supabase()
+        
+        
+        invite_data = {
+            "code": request.code,
+            "profile_id": request.profile_id,
+            "status": "active"
+        }
+
+        response = supabase.table("invite_codes").insert(invite_data).execute()
+
+        return {
+            "success": True,
+            "message": "Invite code created successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating invite code: {str(e)}"
         )
 

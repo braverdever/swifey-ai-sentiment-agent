@@ -160,6 +160,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/profile/we-met",
         "/api/v1/profile/me",
         "/api/v1/profile/matched_profiles",
+        "/api/v1/profile/invite-code",
         "/api/v1/chat/user_chats",
         "/api/v1/profile/get-signed-urls",
         "/api/v1/embeddings/embed/texts",
