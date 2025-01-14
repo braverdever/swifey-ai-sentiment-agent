@@ -88,6 +88,33 @@ class SignedUrlResponse(BaseModel):
     message: str
     urls: List[dict]
 
+class ProfileCountResponse(BaseModel):
+    success: bool
+    message: str
+    count: int
+
+@router.get("/count", response_model=ProfileCountResponse)
+async def get_profile_count():
+    """
+    Get total number of approved profiles in the app.
+    """
+    try:
+        supabase = get_supabase()
+        
+        # Query profiles table for approved profiles
+        response = supabase.from_("profiles").select("id", count="exact").eq("verification_status", "approved").execute()
+
+        count = response.count if response.count is not None else 0
+
+        return {
+            "success": True,
+            "message": "Profile count fetched successfully",
+            "count": count
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.put("/update")
 async def update_user_profile(
     request: UpdateProfileRequest,

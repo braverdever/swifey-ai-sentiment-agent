@@ -176,6 +176,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/chat/chat_messages",
         "/api/v1/chat/get_audio_clips",
         "/api/v1/turnkey/verifyotp",
+        "/api/v1/profile/count",
     ]
     
     # Check if the path ends with any of the public paths
