@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, De
 from typing import Dict, Set, Optional, List, Union
 from pydantic import BaseModel
 import json
+import hashlib
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
 from ..api.utils.notification import send_notification
@@ -9,6 +10,43 @@ from ..core.agent_system import AgentSystem
 from ..models import api as models
 
 router = APIRouter()
+
+# Store active connections
+class ConnectionManager:
+    def __init__(self):
+        # Map of user_id to their WebSocket connection
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+        print(f"User {user_id} connected. Total connections: {len(self.active_connections)}")
+
+    async def disconnect(self, user_id: str):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+            print(f"User {user_id} disconnected. Total connections: {len(self.active_connections)}")
+
+    async def send_message(self, user_id: str, message: dict):
+        if user_id in self.active_connections:
+            await self.active_connections[user_id].send_json(message)
+            return True
+        return False
+
+    def is_connected(self, user_id: str) -> bool:
+        return user_id in self.active_connections
+
+manager = ConnectionManager()
+
+class ConversationData:
+    def __init__(self, interaction_freq: int, agent_id: str, initiator_id: str):
+        self.interaction_freq = interaction_freq
+        self.agent_id = agent_id
+        self.initiator_id = initiator_id
+        self.current_count = 0
+
+
+conversation_count: Dict[str, ConversationData] = {}
 
 def get_agent_system() -> AgentSystem:
     """Dependency to get the agent system instance."""
@@ -29,7 +67,7 @@ def get_agent_system() -> AgentSystem:
             detail=f"Failed to initialize agent system: {str(e)}"
         )
 
-async def generate_truth_bomb(messages: List[dict], agent: AgentSystem) -> str:
+async def analyse_and_generate_truth_bomb(messages: List[dict], agent: AgentSystem) -> str:
     """Generate a truth bomb based on conversation analysis."""
     try:
         # Convert messages to the format expected by the agent
@@ -40,45 +78,111 @@ async def generate_truth_bomb(messages: List[dict], agent: AgentSystem) -> str:
                 timestamp=msg.get("sent_at")
             ) for msg in messages
         ]
-        
+
         analysis = agent.analyze_conversation(formatted_messages)
+        print("Analysis:", analysis)
         truth_bomb = analysis.get("truth_bomb")
-        
+        print("Truth bomb:", truth_bomb)
+
         if not truth_bomb or not isinstance(truth_bomb, str):
             truth_bomb = "How's the conversation going?"
-            
+
         return truth_bomb
-        
+
     except Exception as e:
         print(f"Error generating truth bomb: {e}")
         return "How's the conversation going?"
 
-# Store active connections
-class ConnectionManager:
-    def __init__(self):
-        # Map of user_id to their WebSocket connection
-        self.active_connections: Dict[str, WebSocket] = {}
-        
-    async def connect(self, websocket: WebSocket, user_id: str):
-        await websocket.accept()
-        self.active_connections[user_id] = websocket
-        print(f"User {user_id} connected. Total connections: {len(self.active_connections)}")
-        
-    async def disconnect(self, user_id: str):
-        if user_id in self.active_connections:
-            del self.active_connections[user_id]
-            print(f"User {user_id} disconnected. Total connections: {len(self.active_connections)}")
-            
-    async def send_message(self, user_id: str, message: dict):
-        if user_id in self.active_connections:
-            await self.active_connections[user_id].send_json(message)
-            return True
-        return False
+def get_hash(user_id1: str, user_id2: str) -> str:
+    sorted_ids = sorted([user_id1, user_id2])
 
-    def is_connected(self, user_id: str) -> bool:
-        return user_id in self.active_connections
+    merged_string = str(sorted_ids[0]) + str(sorted_ids[1])
+    return hashlib.sha256(merged_string.encode()).hexdigest()
 
-manager = ConnectionManager()
+async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction_freq: int) -> str:
+    print(f"generating truth bomb for {user_id1} and {user_id2}")
+    try:
+        # Check for active truth bombs first
+        supabase = get_supabase()
+        user_ids = sorted([user_id1, user_id2])
+
+        # Query for active truth bombs between these users
+        active_bombs = supabase.from_("truth_bombs").select("*").eq("user_id1", user_ids[0]).eq("user_id2", user_ids[1]).eq("status", True).execute()
+
+        if active_bombs.data and len(active_bombs.data) > 0:
+            return
+
+        # Get agent system
+        # agent = get_agent_system()
+
+        # Generate truth bomb
+        # response = supabase.rpc("get_direct_messages", {
+        #     'user1_uuid': other_user_id,
+        #     'user2_uuid': user_id,
+        #     'page_size': interaction_freq
+        # }).execute()
+        # truth_bomb_text = await analyse_and_generate_truth_bomb(response.data, agent)
+
+        result = supabase.from_("truth_bombs").insert({
+            "user_id1": user_ids[0],
+            "user_id2": user_ids[1],
+            "truth_bomb": 'Hows the conversation going?',
+            "approve1": False,
+            "approve2": False,
+            "status": True  # Active truth bomb
+        }).execute()
+
+        if not result.data:
+            raise Exception("Failed to store truth bomb")
+
+        truth_bomb_id = result.data[0]["id"]
+
+        # Send truth bomb init notification to both users
+        init_payload = {
+            "type": "truth_bomb_init",
+            "truth_bomb_id": truth_bomb_id
+        }
+
+        # Send to both users
+        await manager.send_message(user_id1, init_payload)
+        await manager.send_message(user_id2, init_payload)
+
+    except Exception as e:
+        print(f"Failed to process truth bomb init: {str(e)}")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Failed to generate truth bomb"
+        })
+
+    pass
+
+def initialise_conversation_count(user_id1: str, user_id2: str):
+    hash = get_hash(user_id1, user_id2)
+    supabase = get_supabase()
+    result = supabase.rpc("get_initiator_and_agent_info", { 'user_id1': user_id1, 'user_id2': user_id2 }).execute()
+    if not result.data[0]:
+        return
+    initiator = result.data[0]['initiator']
+    agent = result.data[0]['agent_id']
+    interaction_freq = result.data[0]['interaction_freq']
+    if not initiator or not agent or not interaction_freq:
+        return
+    conversation_count[hash] = ConversationData(interaction_freq, agent, initiator)
+
+async def increase_count(user_id1: str, user_id2: str):
+    print(f"increasing count for {user_id1} and {user_id2}")
+    print(conversation_count)
+    hash = get_hash(user_id1, user_id2)
+    if hash in conversation_count:
+        conversation_count[hash].current_count += 1
+        if conversation_count[hash].current_count >= conversation_count[hash].interaction_freq:
+            await generate_truth_bomb_and_send(user_id1, user_id2, conversation_count[hash].interaction_freq)
+            conversation_count[hash].current_count = 0
+            return
+    else:
+        initialise_conversation_count(user_id1, user_id2)
+        conversation_count[hash].current_count += 1
+        return 
 
 class ChatMessage(BaseModel):
     type: str  # message, typing, truth_bomb_init, truth_bomb_approved
@@ -120,89 +224,31 @@ async def chat_websocket(
                 # Parse the message
                 chat_message = ChatMessage(**message_data)
                 
-                if chat_message.type == "truth_bomb_init":
-                    try:
-                        # Check for active truth bombs first
-                        supabase = get_supabase()
-                        user_ids = sorted([user_id, chat_message.conversation_id])
-                        
-                        # Query for active truth bombs between these users
-                        active_bombs = supabase.from_("truth_bombs").select("*").eq("user_id1", user_ids[0]).eq("user_id2", user_ids[1]).eq("status", True).execute()
-                        
-                        if active_bombs.data and len(active_bombs.data) > 0:
-                            # There is an active truth bomb, send message back to sender
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "There is already an active truth bomb for this conversation"
-                            })
-                            return
-                            
-                        # Get agent system
-                        agent = get_agent_system()
-                        
-                        # Generate truth bomb
-                        truth_bomb_text = await generate_truth_bomb(chat_message.messages, agent)
-                        
-                        # Store in database with user IDs in ascending order
-                        supabase = get_supabase()
-                        user_ids = sorted([user_id, chat_message.conversation_id])
-                        
-                        result = supabase.from_("truth_bombs").insert({
-                            "user_id1": user_ids[0],
-                            "user_id2": user_ids[1],
-                            "truth_bomb": truth_bomb_text,
-                            "approve1": False,
-                            "approve2": False,
-                            "status": True  # Active truth bomb
-                        }).execute()
-                        
-                        if not result.data:
-                            raise Exception("Failed to store truth bomb")
-                            
-                        truth_bomb_id = result.data[0]["id"]
-                        
-                        # Send truth bomb init notification to both users
-                        init_payload = {
-                            "type": "truth_bomb_init",
-                            "truth_bomb_id": truth_bomb_id
-                        }
-                        
-                        # Send to both users
-                        await manager.send_message(user_id, init_payload)
-                        await manager.send_message(chat_message.conversation_id, init_payload)
-                        
-                    except Exception as e:
-                        print(f"Failed to process truth bomb init: {str(e)}")
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Failed to generate truth bomb"
-                        })
-                        
-                elif chat_message.type == "truth_bomb_approved":
+                if chat_message.type == "truth_bomb_approved":
                     try:
                         supabase = get_supabase()
                         
-                        # Get the truth bomb
+                        # get the truth bomb
                         truth_bomb = supabase.from_("truth_bombs").select("*").eq("id", chat_message.truth_bomb_id).single().execute()
                         
                         if not truth_bomb.data:
-                            raise Exception("Truth bomb not found")
+                            raise exception("truth bomb not found")
                             
-                        # Determine which approval to update based on user ID order
+                        # determine which approval to update based on user id order
                         user_ids = sorted([truth_bomb.data["user_id1"], truth_bomb.data["user_id2"]])
                         is_user1 = user_id == user_ids[0]
                         
-                        # Update the appropriate approval field
-                        update_data = {"approve1": True} if is_user1 else {"approve2": True}
+                        # update the appropriate approval field
+                        update_data = {"approve1": true} if is_user1 else {"approve2": true}
                         result = supabase.from_("truth_bombs").update(update_data).eq("id", chat_message.truth_bomb_id).execute()
                         
                         if not result.data:
-                            raise Exception("Failed to update approval")
+                            raise exception("failed to update approval")
                             
-                        # Check if both approved
+                        # check if both approved
                         updated_bomb = result.data[0]
                         if updated_bomb["approve1"] and updated_bomb["approve2"]:
-                            # Send truth bomb to both users and mark as inactive
+                            # send truth bomb to both users and mark as inactive
                             truth_bomb_payload = {
                                 "type": "truth_bomb",
                                 "content": updated_bomb["truth_bomb"]
@@ -211,19 +257,19 @@ async def chat_websocket(
                             await manager.send_message(updated_bomb["user_id1"], truth_bomb_payload)
                             await manager.send_message(updated_bomb["user_id2"], truth_bomb_payload)
                             
-                            # Mark truth bomb as inactive
-                            supabase.from_("truth_bombs").update({"status": False}).eq("id", chat_message.truth_bomb_id).execute()
+                            # mark truth bomb as inactive
+                            supabase.from_("truth_bombs").update({"status": false}).eq("id", chat_message.truth_bomb_id).execute()
                             
-                    except Exception as e:
-                        print(f"Failed to process truth bomb approval: {str(e)}")
+                    except exception as e:
+                        print(f"failed to process truth bomb approval: {str(e)}")
                         await websocket.send_json({
                             "type": "error",
-                            "message": "Failed to process truth bomb approval"
+                            "message": "failed to process truth bomb approval"
                         })
                 
                 elif chat_message.type == "message":
                     try:
-                        # Store message in database first
+                        # store message in database first
                         supabase = get_supabase()
                         message_data = {
                             "sender_id": user_id,
@@ -231,18 +277,20 @@ async def chat_websocket(
                             "content": chat_message.content,
                             "message_type": chat_message.message_type or "text"
                         }
-                        print(f"Storing message: {message_data}")
+                        print(f"storing message: {message_data}")
                         
                         result = supabase.from_("direct_messages").insert(message_data).execute()
-                        print(f"Database response: {result.data}")
+                        print(f"database response: {result.data}")
                         
                         if not result.data:
-                            raise Exception("No data returned from message insert")
+                            raise exception("no data returned from message insert")
                             
-                        stored_message = result.data[0]
-                        print(f"Stored message: {stored_message}")
+                        await increase_count(user_id, chat_message.conversation_id)
                         
-                        # Create message payload
+                        stored_message = result.data[0]
+                        print(f"stored message: {stored_message}")
+                        
+                        # create message payload
                         message_payload = {
                             "type": "message",
                             "sender_id": user_id,
@@ -251,31 +299,31 @@ async def chat_websocket(
                             "conversation_id": chat_message.conversation_id,
                             "message_id": stored_message.get("id")
                         }
-                        print(f"Created message payload: {message_payload}")
+                        print(f"created message payload: {message_payload}")
                         
-                        # Send acknowledgment to sender
+                        # send acknowledgment to sender
                         ack_payload = {
                             "type": "message_sent",
                             "status": "success",
                             "message_id": stored_message.get("id"),
                             "timestamp": stored_message.get("created_at")
                         }
-                        print(f"Sending acknowledgment: {ack_payload}")
+                        print(f"sending acknowledgment: {ack_payload}")
                         await websocket.send_json(ack_payload)
                         
-                        # Try to send to receiver if connected
+                        # try to send to receiver if connected
                         if manager.is_connected(chat_message.conversation_id):
-                            print(f"Receiver {chat_message.conversation_id} is connected, sending message")
+                            print(f"receiver {chat_message.conversation_id} is connected, sending message")
                             await manager.send_message(chat_message.conversation_id, message_payload)
                         else:
-                            print(f"Receiver {chat_message.conversation_id} is not connected, trying FCM")
-                            # Fallback to FCM notification if receiver not connected
+                            print(f"receiver {chat_message.conversation_id} is not connected, trying fcm")
+                            # fallback to fcm notification if receiver not connected
                             try:
-                                # Get receiver's FCM token from Supabase
+                                # get receiver's fcm token from supabase
                                 receiver = supabase.from_("profiles").select("fcm_token").eq("id", chat_message.conversation_id).single().execute()
-                                print(f"Receiver FCM data: {receiver.data}")
+                                print(f"receiver fcm data: {receiver.data}")
                                 
-                                # Only attempt to send notification if FCM token exists
+                                # only attempt to send notification if fcm token exists
                                 if receiver.data and receiver.data.get("fcm_token"):
                                     notification_data = {
                                         "type": "chat_message",
@@ -283,29 +331,33 @@ async def chat_websocket(
                                         "conversation_id": chat_message.conversation_id,
                                         "message_id": stored_message.get("id")
                                     }
-                                    print(f"Sending FCM notification: {notification_data}")
+                                    print(f"sending fcm notification: {notification_data}")
                                     await send_notification(
                                         token=receiver.data["fcm_token"],
-                                        title="New Message",
-                                        body=chat_message.content[:100],  # Truncate long messages
+                                        title="new message",
+                                        body=chat_message.content[:100],  # truncate long messages
                                         data=notification_data
                                     )
-                            except Exception as e:
-                                # Log notification error but don't stop message processing
-                                print(f"Failed to send notification: {str(e)}")
+                            except exception as e:
+                                # log notification error but don't stop message processing
+                                print(f"failed to send notification: {str(e)}")
                                 
-                    except Exception as e:
-                        print(f"Failed to process message: {str(e)}")
-                        print(f"Error details: {type(e).__name__}, {str(e)}")
-                        # Send error message back to sender
+                            # increase the message count for the conversation for truth bomb
+                    except exception as e:
+                        print(f"failed to process message: {str(e)}")
+                        print(f"error details: {type(e).__name__}, {str(e)}")
+                        # send error message back to sender
                         await websocket.send_json({
                             "type": "error",
-                            "message": "Failed to process message"
+                            "message": "failed to process message"
                         })
                 
-        except WebSocketDisconnect:
+        except websocketdisconnect:
             await manager.disconnect(user_id)
             
-    except Exception as e:
-        print(f"WebSocket error: {str(e)}")
+    except exception as e:
+        print(f"websocket error: {str(e)}")
         await websocket.close() 
+
+
+
