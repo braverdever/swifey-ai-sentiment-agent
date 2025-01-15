@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from ..db.supabase import get_supabase
 from ..auth.middleware import verify_app_token
-from upstash_redis import Redis
 from pydantic import BaseModel
 from typing import Optional, List
 import json
+import redis 
 
 router = APIRouter()
 
@@ -90,9 +90,9 @@ async def get_ai_coach(
 
 @router.get("/cached")
 async def get_ai_coach_cached():
-    redis = Redis.from_env()
     try:
-        value = redis.get('ai_coaches')
+        local_redis = redis.Redis(host='localhost', port=6379, db=0)
+        value = local_redis.get('ai_coaches')
         if value: 
             data = json.loads(value)
             return {
@@ -138,11 +138,12 @@ async def get_ai_coach_by_id(
     
 @router.post("/cached")
 async def set_ai_coach_cached(data: List[AiCoach]):
-    redis = Redis.from_env()
     try:
         json_data = json.dumps([coach.dict() for coach in data])
         
-        result = redis.set('ai_coaches', json_data)
+        local_redis = redis.Redis(host='localhost', port=6379, db=0)
+
+        result = local_redis.set('ai_coaches', json_data)
         if not result:
             raise HTTPException(status_code=500, detail="Failed to cache AI coaches list.")
         
