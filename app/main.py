@@ -155,6 +155,7 @@ async def auth_middleware_handler(request: Request, call_next):
     public_paths = [
         "/",
         "/fetch-configuration",
+        "/api/v1/ai-coach/cached",
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
         "/api/v1/profile/we-met",

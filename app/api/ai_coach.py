@@ -1,8 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
 from ..db.supabase import get_supabase
 from ..auth.middleware import verify_app_token
+from upstash_redis import Redis
+from pydantic import BaseModel
+from typing import Optional, List
+import json
 
 router = APIRouter()
+
+class AiCoach(BaseModel):
+    id: str
+    created_at: str
+    name: str
+    symbol: str
+    profile_image: str
+    prompt: str
+    truth_index: int
+    interaction_freq: int
+    who_sees_you_prompt: Optional[str]
+    who_you_see_prompt: Optional[str]
+    wallet_addr: str
+    price: Optional[float]
+    token_mint: str
+    category: str
+
+class AiCoachesData(BaseModel):
+    coaches: List[AiCoach]
 
 def get_category_from_truth_index(truth_index: int) -> str:
     if truth_index >= 81 and truth_index <= 100:
@@ -65,6 +88,25 @@ async def get_ai_coach(
             detail="Failed to fetch AI coaches"
         )
 
+@router.get("/cached")
+async def get_ai_coach_cached():
+    redis = Redis.from_env()
+    try:
+        value = redis.get('ai_coaches')
+        if value: 
+            data = json.loads(value)
+            return {
+                'cached': True,
+                'data': data
+            }
+        else:
+            return {
+                'cached': False
+            }
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail="Failed to fetch cached AI coach")
+
 @router.get("/{coach_id}")
 async def get_ai_coach_by_id(
     coach_id: str,
@@ -93,3 +135,21 @@ async def get_ai_coach_by_id(
             status_code=500,
             detail="Failed to fetch AI coach"
         )
+    
+@router.post("/cached")
+async def set_ai_coach_cached(data: List[AiCoach]):
+    redis = Redis.from_env()
+    try:
+        json_data = json.dumps([coach.dict() for coach in data])
+        
+        result = redis.set('ai_coaches', json_data)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to cache AI coaches list.")
+        
+        return {
+            "status": "success",
+            "message": "AI coach data cached successfully"
+        }
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail="Failed to set cached AI coach")
