@@ -116,7 +116,7 @@ class VerifyInviteCode(BaseModel):
     code: str
 
 class CreateInvitation(BaseModel):
-    inviter_user_id: str
+    inviter_code: str
     invited_user_id: str
 
 @router.get("/count", response_model=ProfileCountResponse)
@@ -461,7 +461,7 @@ async def create_invitation(
         supabase = get_supabase()
         
         invitation_data = {
-            "inviter_user_id": invitation.inviter_user_id,
+            "inviter_code": invitation.inviter_code,
             "invited_user_id": invitation.invited_user_id,
             "created_at": "now()",
             "updated_at": "now()"
