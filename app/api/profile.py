@@ -107,6 +107,11 @@ class UserInvitation(BaseModel):
     invite_code: str
     invited_user_id: str
 
+class UserReport(BaseModel):
+    report_user_id: str
+    report_reason: str
+    profile_id: str
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -447,5 +452,37 @@ async def create_user_invitation(
         raise HTTPException(
             status_code=500,
             detail=f"Error creating user invitation: {str(e)}"
+        )
+
+@router.post("/report", response_model=dict)
+async def report_user(
+    report: UserReport,
+):
+    """
+    Create a report for a user.
+    The authenticated user (profile_id) reports another user (report_user_id) with a reason.
+    """
+    try:
+        supabase = get_supabase()
+        
+        report_data = {
+            "profile_id": report.profile_id,  
+            "report_user_id": report.report_user_id,  
+            "report_reason": report.report_reason,
+            "created_at": "now()"
+        }
+
+        response = supabase.table("reports").insert(report_data).execute()
+
+        return {
+            "success": True,
+            "message": "Report submitted successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error submitting report: {str(e)}"
         )
 
