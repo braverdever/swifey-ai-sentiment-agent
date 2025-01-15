@@ -103,6 +103,10 @@ class InviteCode(BaseModel):
     profile_id: str
     status: Optional[str] = "active"
 
+class UserInvitation(BaseModel):
+    invite_code: str
+    invited_user_id: str
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -393,5 +397,55 @@ async def create_invite_code(
         raise HTTPException(
             status_code=500,
             detail=f"Error creating invite code: {str(e)}"
+        )
+
+@router.post("/invite-user", response_model=dict)
+async def create_user_invitation(
+    invitation: UserInvitation,
+):
+    """
+    Create a record of a user inviting another user.
+    First validates the invite code and fetches the associated profile_id,
+    then stores the invitation details in the user_invitations table.
+    """
+    try:
+        supabase = get_supabase()
+        
+        invite_code_response = supabase.table("invite_codes") \
+            .select("profile_id") \
+            .eq("code", invitation.invite_code) \
+            .eq("status", "active") \
+            .single() \
+            .execute()
+
+        if not invite_code_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Invalid or inactive invite code"
+            )
+
+        inviter_user_id = invite_code_response.data['profile_id']
+        
+        invitation_data = {
+            "inviter_user_id": inviter_user_id,
+            "invited_user_id": invitation.invited_user_id,
+            "created_at": "now()",
+            "updated_at": "now()"
+        }
+
+        response = supabase.table("user_invitations").insert(invitation_data).execute()
+
+        return {
+            "success": True,
+            "message": "User invitation created successfully",
+            "data": response.data
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating user invitation: {str(e)}"
         )
 
