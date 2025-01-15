@@ -527,7 +527,7 @@ async def get_invite_codes(
     try:
         supabase = get_supabase()
         
-        if request.user_id != request.profile_id:
+        if request.user_id != None:
             raise HTTPException(
                 status_code=403,
                 detail="Not authorized to view these invite codes"
