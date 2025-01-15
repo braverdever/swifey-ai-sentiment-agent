@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import json
 import redis 
+from ..config import settings
 
 router = APIRouter()
 
@@ -91,7 +92,7 @@ async def get_ai_coach(
 @router.get("/cached")
 async def get_ai_coach_cached():
     try:
-        local_redis = redis.Redis(host='localhost', port=6379, db=0)
+        local_redis = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
         value = local_redis.get('ai_coaches')
         if value: 
             data = json.loads(value)
@@ -141,7 +142,7 @@ async def set_ai_coach_cached(data: List[AiCoach]):
     try:
         json_data = json.dumps([coach.dict() for coach in data])
         
-        local_redis = redis.Redis(host='localhost', port=6379, db=0)
+        local_redis = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
 
         result = local_redis.set('ai_coaches', json_data)
         if not result:
