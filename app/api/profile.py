@@ -513,3 +513,48 @@ async def report_user(
             detail=f"Error submitting report: {str(e)}"
         )
 
+@router.get("/invite-codes/{profile_id}", response_model=dict)
+async def get_invite_codes(
+    profile_id: str,
+    user_id: str 
+):
+    """
+    Fetch all invite codes associated with a profile ID.
+    Returns both active and used codes with their status.
+    """
+    try:
+        supabase = get_supabase()
+        
+        if user_id != profile_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to view these invite codes"
+            )
+        
+        response = supabase.table("invite_codes") \
+            .select("code, status, created_at") \
+            .eq("profile_id", profile_id) \
+            .order("created_at", desc=True) \
+            .execute()
+
+        if not response.data:
+            return {
+                "success": True,
+                "message": "No invite codes found",
+                "data": []
+            }
+
+        return {
+            "success": True,
+            "message": "Invite codes fetched successfully",
+            "data": response.data
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching invite codes: {str(e)}"
+        )
+
