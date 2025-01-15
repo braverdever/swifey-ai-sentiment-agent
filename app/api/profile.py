@@ -112,6 +112,13 @@ class UserReport(BaseModel):
     report_reason: str
     profile_id: str
 
+class VerifyInviteCode(BaseModel):
+    code: str
+
+class CreateInvitation(BaseModel):
+    inviter_user_id: str
+    invited_user_id: str
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -404,21 +411,20 @@ async def create_invite_code(
             detail=f"Error creating invite code: {str(e)}"
         )
 
-@router.post("/invite-user", response_model=dict)
-async def create_user_invitation(
-    invitation: UserInvitation,
+@router.post("/verify-invite-code", response_model=dict)
+async def verify_invite_code(
+    request: VerifyInviteCode
 ):
     """
-    Create a record of a user inviting another user.
-    First validates the invite code and fetches the associated profile_id,
-    then stores the invitation details in the user_invitations table.
+    Verify if an invite code is valid and active.
+    Returns the associated profile_id if valid.
     """
     try:
         supabase = get_supabase()
         
         invite_code_response = supabase.table("invite_codes") \
             .select("profile_id") \
-            .eq("code", invitation.invite_code) \
+            .eq("code", request.code) \
             .eq("status", "active") \
             .single() \
             .execute()
@@ -429,10 +435,33 @@ async def create_user_invitation(
                 detail="Invalid or inactive invite code"
             )
 
-        inviter_user_id = invite_code_response.data['profile_id']
+        return {
+            "success": True,
+            "message": "Valid invite code",
+            "inviter_user_id": invite_code_response.data['profile_id']
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verifying invite code: {str(e)}"
+        )
+
+@router.post("/create-invitation", response_model=dict)
+async def create_invitation(
+    invitation: CreateInvitation
+):
+    """
+    Create a record of a user inviting another user.
+    Stores the invitation details in the user_invitations table.
+    """
+    try:
+        supabase = get_supabase()
         
         invitation_data = {
-            "inviter_user_id": inviter_user_id,
+            "inviter_user_id": invitation.inviter_user_id,
             "invited_user_id": invitation.invited_user_id,
             "created_at": "now()",
             "updated_at": "now()"
@@ -446,12 +475,10 @@ async def create_user_invitation(
             "data": response.data
         }
 
-    except HTTPException as e:
-        raise e
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error creating user invitation: {str(e)}"
+            detail=f"Error creating invitation: {str(e)}"
         )
 
 @router.post("/report", response_model=dict)
