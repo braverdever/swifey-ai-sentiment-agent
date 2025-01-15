@@ -239,7 +239,7 @@ async def chat_websocket(
                         is_user1 = user_id == user_ids[0]
                         
                         # update the appropriate approval field
-                        update_data = {"approve1": true} if is_user1 else {"approve2": true}
+                        update_data = {"approve1": True} if is_user1 else {"approve2": True}
                         result = supabase.from_("truth_bombs").update(update_data).eq("id", chat_message.truth_bomb_id).execute()
                         
                         if not result.data:
