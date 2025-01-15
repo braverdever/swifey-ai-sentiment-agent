@@ -119,6 +119,9 @@ class CreateInvitation(BaseModel):
     inviter_code: str
     invited_user_id: str
 
+class GetInviteCodesRequest(BaseModel):
+    user_id: str
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -513,10 +516,9 @@ async def report_user(
             detail=f"Error submitting report: {str(e)}"
         )
 
-@router.get("/invite-codes/{profile_id}", response_model=dict)
+@router.post("/invite-codes", response_model=dict)
 async def get_invite_codes(
-    profile_id: str,
-    user_id: str 
+    request: GetInviteCodesRequest
 ):
     """
     Fetch all invite codes associated with a profile ID.
@@ -525,7 +527,7 @@ async def get_invite_codes(
     try:
         supabase = get_supabase()
         
-        if user_id != profile_id:
+        if request.user_id != request.profile_id:
             raise HTTPException(
                 status_code=403,
                 detail="Not authorized to view these invite codes"
@@ -533,7 +535,7 @@ async def get_invite_codes(
         
         response = supabase.table("invite_codes") \
             .select("code, status, created_at") \
-            .eq("profile_id", profile_id) \
+            .eq("profile_id", request.user_id) \
             .order("created_at", desc=True) \
             .execute()
 
