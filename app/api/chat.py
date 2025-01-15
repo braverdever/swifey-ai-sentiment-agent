@@ -52,6 +52,11 @@ class ChatMessagesResponse(BaseModel):
     message: str
     messages: List[Message]
 
+class TruthBombResponse(BaseModel):
+    success: bool
+    message: str
+    truth_bomb: Optional[dict]
+
 class AudioClip(BaseModel):
     audio_id: str  # Changed from 'id' to match response
     title: str
@@ -293,6 +298,29 @@ async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_ap
             "message": "Chat messages fetched successfully",
             "messages": response.data
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get('/get_truth_bomb', response_model=TruthBombResponse)
+async def get_active_truthbomb(other_user_id: str):
+    try:
+        supabase = get_supabase()
+        user_ids = sorted([other_user_id, user_id])
+        response = supabase.from_('truth_bombs').select('*').eq('user_id1', sorted(user_ids)[0]).eq('user_id2', sorted(user_ids)[1]).eq('status', True).execute()
+        if response.data:
+            return {
+                "success": True,
+                "message": "Truth bomb found",
+                "is_active": True,
+                "truth_bomb": response.data[0]['id']
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "is_active": False,
+                "truth_bomb": None
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
