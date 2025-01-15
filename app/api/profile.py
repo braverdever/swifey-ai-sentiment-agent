@@ -527,10 +527,10 @@ async def get_invite_codes(
     try:
         supabase = get_supabase()
         
-        if request.user_id != None:
+        if request.user_id is None or request.user_id.strip() == "":
             raise HTTPException(
-                status_code=403,
-                detail="Not authorized to view these invite codes"
+                status_code=400,
+                detail="user_id is required"
             )
         
         response = supabase.table("invite_codes") \
