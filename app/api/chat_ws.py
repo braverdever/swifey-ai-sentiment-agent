@@ -174,11 +174,14 @@ async def increase_count(user_id1: str, user_id2: str):
     print(conversation_count)
     hash = get_hash(user_id1, user_id2)
     if hash in conversation_count:
-        conversation_count[hash].current_count += 1
-        if conversation_count[hash].current_count >= conversation_count[hash].interaction_freq:
-            await generate_truth_bomb_and_send(user_id1, user_id2, conversation_count[hash].interaction_freq)
-            conversation_count[hash].current_count = 0
-            return
+        try:
+            conversation_count[hash].current_count += 1
+            if conversation_count[hash].current_count >= conversation_count[hash].interaction_freq:
+                await generate_truth_bomb_and_send(user_id1, user_id2, conversation_count[hash].interaction_freq)
+                conversation_count[hash].current_count = 0
+                return
+        except Exception as e:
+            print(e)
     else:
         initialise_conversation_count(user_id1, user_id2)
         conversation_count[hash].current_count += 1
@@ -338,12 +341,12 @@ async def chat_websocket(
                                         body=chat_message.content[:100],  # truncate long messages
                                         data=notification_data
                                     )
-                            except exception as e:
+                            except Exception as e:
                                 # log notification error but don't stop message processing
                                 print(f"failed to send notification: {str(e)}")
                                 
                             # increase the message count for the conversation for truth bomb
-                    except exception as e:
+                    except Exception as e:
                         print(f"failed to process message: {str(e)}")
                         print(f"error details: {type(e).__name__}, {str(e)}")
                         # send error message back to sender
@@ -355,7 +358,7 @@ async def chat_websocket(
         except websocketdisconnect:
             await manager.disconnect(user_id)
             
-    except exception as e:
+    except Exception as e:
         print(f"websocket error: {str(e)}")
         await websocket.close() 
 
