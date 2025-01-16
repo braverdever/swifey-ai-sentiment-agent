@@ -75,7 +75,7 @@ async def analyse_and_generate_truth_bomb(messages: List[dict], agent: AgentSyst
             models.Message(
                 sender=msg.get("sender"),
                 content=msg.get("content"),
-                timestamp=msg.get("timestamp")
+                timestamp=msg.get("message_timestamp")
             ) for msg in messages
         ]
 
@@ -116,27 +116,10 @@ async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction
         agent = get_agent_system()
 
         # Generate truth bomb
-        # response = supabase.rpc("get_direct_messages", { 'user1_uuid': user_ids[0], 'user2_uuid': user_ids[1], 'page_size': interaction_freq }).execute()
+        response = supabase.rpc("last_n_messages_to_agent", { 'user_id1': user_ids[0], 'user_id2': user_ids[1], 'n': interaction_freq }).execute()
+        print("response from the supabase rpc call", response.data)
 
-        dummy_data = [ {
-            "content": "Hey, I saw your hiking photos! That trail looks stunning—where is it?",
-            "sender": "Alex",
-            "timestamp": "2024-12-30T08:00:00Z",
-            "metadata": {}
-        },
-        {
-            "content": "Thanks! It’s called Eagle Ridge Trail, about an hour from here. The views at the top are absolutely worth the climb!",
-            "sender": "Jordan",
-            "timestamp": "2024-12-30T08:15:00Z",
-            "metadata": {}
-        },
-        {
-            "content": "It sounds amazing. I love trails with rewarding views like that. Is it beginner-friendly or more challenging?",
-            "sender": "Alex",
-            "timestamp": "2024-12-30T08:20:00Z",
-            "metadata": {}
-        } ]
-        truth_bomb_text = await analyse_and_generate_truth_bomb( dummy_data, agent)
+        truth_bomb_text = await analyse_and_generate_truth_bomb( response.data, agent)
 
         result = supabase.from_("truth_bombs").insert({
             "user_id1": user_ids[0],
