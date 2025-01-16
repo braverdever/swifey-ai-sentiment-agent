@@ -122,6 +122,9 @@ class CreateInvitation(BaseModel):
 class GetInviteCodesRequest(BaseModel):
     user_id: str
 
+class EmailCheckRequest(BaseModel):
+    email: EmailStr
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
@@ -558,5 +561,34 @@ async def get_invite_codes(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching invite codes: {str(e)}"
+        )
+
+@router.post("/check-email", response_model=dict)
+async def check_email_exists(
+    request: EmailCheckRequest
+):
+    """
+    Check if an email exists in the profiles table.
+    """
+    try:
+        supabase = get_supabase()
+        
+        response = supabase.table("profiles") \
+            .select("id") \
+            .eq("email", request.email) \
+            .execute()
+
+        exists = len(response.data) > 0
+
+        return {
+            "success": True,
+            "exists": exists,
+            "message": "Email already exists" if exists else "Email is available"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking email: {str(e)}"
         )
 
