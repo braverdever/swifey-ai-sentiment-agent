@@ -277,7 +277,7 @@ async def chat_websocket(
                             await manager.send_message(updated_bomb["user_id2"], truth_bomb_payload)
                             
                             # mark truth bomb as inactive
-                            supabase.from_("truth_bombs").update({"status": false}).eq("id", chat_message.truth_bomb_id).execute()
+                            supabase.from_("truth_bombs").update({"status": False}).eq("id", chat_message.truth_bomb_id).execute()
                             
                     except exception as e:
                         print(f"failed to process truth bomb approval: {str(e)}")
