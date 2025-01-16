@@ -99,7 +99,7 @@ def get_hash(user_id1: str, user_id2: str) -> str:
     merged_string = str(sorted_ids[0]) + str(sorted_ids[1])
     return hashlib.sha256(merged_string.encode()).hexdigest()
 
-async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction_freq: int) -> str:
+async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction_freq: int) :
     print(f"generating truth bomb for {user_id1} and {user_id2}")
     try:
         # Check for active truth bombs first
@@ -170,11 +170,12 @@ def initialise_conversation_count(user_id1: str, user_id2: str):
     conversation_count[hash] = ConversationData(interaction_freq, agent, initiator)
 
 async def increase_count(user_id1: str, user_id2: str):
-    print(f"increasing count for {user_id1} and {user_id2}")
-    print(conversation_count)
+    print(f"increasing count {user_id1} and {user_id2}")
     hash = get_hash(user_id1, user_id2)
     if hash in conversation_count:
         try:
+            print("object" , conversation_count[hash])
+            print("object" , conversation_count[hash].interaction_freq)
             conversation_count[hash].current_count += 1
             if conversation_count[hash].current_count >= conversation_count[hash].interaction_freq:
                 await generate_truth_bomb_and_send(user_id1, user_id2, conversation_count[hash].interaction_freq)
@@ -183,9 +184,12 @@ async def increase_count(user_id1: str, user_id2: str):
         except Exception as e:
             print(e)
     else:
-        initialise_conversation_count(user_id1, user_id2)
-        conversation_count[hash].current_count += 1
-        return 
+        try:
+            initialise_conversation_count(user_id1, user_id2)
+            print("object in else block" , conversation_count)
+            return 
+        except Exception as e:
+            print(e)
 
 class ChatMessage(BaseModel):
     type: str  # message, typing, truth_bomb_init, truth_bomb_approved
