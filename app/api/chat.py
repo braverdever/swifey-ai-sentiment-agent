@@ -54,6 +54,7 @@ class ChatMessagesResponse(BaseModel):
 
 class TruthBombResponse(BaseModel):
     success: bool
+    isActive: bool
     message: str
     truth_bomb: Optional[dict]
 
@@ -302,23 +303,24 @@ async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_ap
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get('/get_truth_bomb', response_model=TruthBombResponse)
-async def get_active_truthbomb(other_user_id: str):
+async def get_active_truthbomb(other_user_id: str, user_id: str = Depends(verify_app_token)):
     try:
         supabase = get_supabase()
         user_ids = sorted([other_user_id, user_id])
         response = supabase.from_('truth_bombs').select('*').eq('user_id1', sorted(user_ids)[0]).eq('user_id2', sorted(user_ids)[1]).eq('status', True).execute()
+        print(response.data)
         if response.data:
             return {
                 "success": True,
                 "message": "Truth bomb found",
-                "is_active": True,
+                "isActive": True,
                 "truth_bomb": response.data[0]['id']
             }
         else:
             return {
                 "success": True,
                 "message": "No truth bomb found",
-                "is_active": False,
+                "isActive": True,
                 "truth_bomb": None
             }
     except Exception as e:
