@@ -73,9 +73,9 @@ async def analyse_and_generate_truth_bomb(messages: List[dict], agent: AgentSyst
         # Convert messages to the format expected by the agent
         formatted_messages = [
             models.Message(
-                sender=msg.get("sender_id"),
+                sender=msg.get("sender"),
                 content=msg.get("content"),
-                timestamp=msg.get("sent_at")
+                timestamp=msg.get("timestamp")
             ) for msg in messages
         ]
 
@@ -113,20 +113,35 @@ async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction
             return
 
         # Get agent system
-        # agent = get_agent_system()
+        agent = get_agent_system()
 
         # Generate truth bomb
-        # response = supabase.rpc("get_direct_messages", {
-        #     'user1_uuid': other_user_id,
-        #     'user2_uuid': user_id,
-        #     'page_size': interaction_freq
-        # }).execute()
-        # truth_bomb_text = await analyse_and_generate_truth_bomb(response.data, agent)
+        # response = supabase.rpc("get_direct_messages", { 'user1_uuid': user_ids[0], 'user2_uuid': user_ids[1], 'page_size': interaction_freq }).execute()
+
+        dummy_data = [ {
+            "content": "Hey, I saw your hiking photos! That trail looks stunning—where is it?",
+            "sender": "Alex",
+            "timestamp": "2024-12-30T08:00:00Z",
+            "metadata": {}
+        },
+        {
+            "content": "Thanks! It’s called Eagle Ridge Trail, about an hour from here. The views at the top are absolutely worth the climb!",
+            "sender": "Jordan",
+            "timestamp": "2024-12-30T08:15:00Z",
+            "metadata": {}
+        },
+        {
+            "content": "It sounds amazing. I love trails with rewarding views like that. Is it beginner-friendly or more challenging?",
+            "sender": "Alex",
+            "timestamp": "2024-12-30T08:20:00Z",
+            "metadata": {}
+        } ]
+        truth_bomb_text = await analyse_and_generate_truth_bomb( dummy_data, agent)
 
         result = supabase.from_("truth_bombs").insert({
             "user_id1": user_ids[0],
             "user_id2": user_ids[1],
-            "truth_bomb": 'Hows the conversation going?',
+            "truth_bomb": truth_bomb_text,
             "approve1": False,
             "approve2": False,
             "status": True  # Active truth bomb
@@ -165,17 +180,30 @@ def initialise_conversation_count(user_id1: str, user_id2: str):
     initiator = result.data[0]['initiator']
     agent = result.data[0]['agent_id']
     interaction_freq = result.data[0]['interaction_freq']
-    if not initiator or not agent or not interaction_freq:
+    if not initiator:
         return
+    elif not agent:
+        conversation_count[hash] = ConversationData( -1, '', initiator)
     conversation_count[hash] = ConversationData(interaction_freq, agent, initiator)
 
 async def increase_count(user_id1: str, user_id2: str):
     print(f"increasing count {user_id1} and {user_id2}")
     hash = get_hash(user_id1, user_id2)
     if hash in conversation_count:
+        print("old only object")
+        print(conversation_count[hash].current_count)
+        print(conversation_count[hash].agent_id)
+        print(conversation_count[hash].interaction_freq)
+        if conversation_count[hash].interaction_freq == -1 or conversation_count[hash].interaction_freq == None:
+            conversation_count[hash].current_count += 1
+            # if conversation_count[hash].current_count >= 50:
+                # give a chance to the no agent users after 50 interactions to re initialize the conversation
+                # initialise_conversation_count(user_id1, user_id2)
+            print("conversation does not have an agent ")
+            return
         try:
-            print("object" , conversation_count[hash])
-            print("object" , conversation_count[hash].interaction_freq)
+            print("current count" , conversation_count[hash].current_count)
+            print("interaction freq" , conversation_count[hash].interaction_freq)
             conversation_count[hash].current_count += 1
             if conversation_count[hash].current_count >= conversation_count[hash].interaction_freq:
                 await generate_truth_bomb_and_send(user_id1, user_id2, conversation_count[hash].interaction_freq)
@@ -184,9 +212,11 @@ async def increase_count(user_id1: str, user_id2: str):
         except Exception as e:
             print(e)
     else:
+        print("new people intiating conversation....")
         try:
             initialise_conversation_count(user_id1, user_id2)
             print("object in else block" , conversation_count)
+            conversation_count[hash].current_count += 1
             return 
         except Exception as e:
             print(e)
@@ -226,7 +256,6 @@ async def chat_websocket(
             while True:
                 data = await websocket.receive_text()
                 message_data = json.loads(data)
-                print(f"Received message data: {message_data}")
                 
                 # Parse the message
                 chat_message = ChatMessage(**message_data)
@@ -284,10 +313,8 @@ async def chat_websocket(
                             "content": chat_message.content,
                             "message_type": chat_message.message_type or "text"
                         }
-                        print(f"storing message: {message_data}")
                         
                         result = supabase.from_("direct_messages").insert(message_data).execute()
-                        print(f"database response: {result.data}")
                         
                         if not result.data:
                             raise exception("no data returned from message insert")
@@ -295,7 +322,6 @@ async def chat_websocket(
                         await increase_count(user_id, chat_message.conversation_id)
                         
                         stored_message = result.data[0]
-                        print(f"stored message: {stored_message}")
                         
                         # create message payload
                         message_payload = {
@@ -306,7 +332,6 @@ async def chat_websocket(
                             "conversation_id": chat_message.conversation_id,
                             "message_id": stored_message.get("id")
                         }
-                        print(f"created message payload: {message_payload}")
                         
                         # send acknowledgment to sender
                         ack_payload = {
@@ -315,20 +340,16 @@ async def chat_websocket(
                             "message_id": stored_message.get("id"),
                             "timestamp": stored_message.get("created_at")
                         }
-                        print(f"sending acknowledgment: {ack_payload}")
                         await websocket.send_json(ack_payload)
                         
                         # try to send to receiver if connected
                         if manager.is_connected(chat_message.conversation_id):
-                            print(f"receiver {chat_message.conversation_id} is connected, sending message")
                             await manager.send_message(chat_message.conversation_id, message_payload)
                         else:
-                            print(f"receiver {chat_message.conversation_id} is not connected, trying fcm")
                             # fallback to fcm notification if receiver not connected
                             try:
                                 # get receiver's fcm token from supabase
                                 receiver = supabase.from_("profiles").select("fcm_token").eq("id", chat_message.conversation_id).single().execute()
-                                print(f"receiver fcm data: {receiver.data}")
                                 
                                 # only attempt to send notification if fcm token exists
                                 if receiver.data and receiver.data.get("fcm_token"):
@@ -338,7 +359,6 @@ async def chat_websocket(
                                         "conversation_id": chat_message.conversation_id,
                                         "message_id": stored_message.get("id")
                                     }
-                                    print(f"sending fcm notification: {notification_data}")
                                     await send_notification(
                                         token=receiver.data["fcm_token"],
                                         title="new message",
@@ -359,7 +379,7 @@ async def chat_websocket(
                             "message": "failed to process message"
                         })
                 
-        except websocketdisconnect:
+        except WebSocketDisconnect:
             await manager.disconnect(user_id)
             
     except Exception as e:
