@@ -191,7 +191,6 @@ class EmbeddingManager:
             delete_result = self.supabase.table("embeddings") \
                 .delete() \
                 .eq('user_id', user_id) \
-                .eq('agent_id', agent_id) \
                 .eq('data_type', data_type) \
                 .eq('embedding_type', embedding_type) \
                 .execute()

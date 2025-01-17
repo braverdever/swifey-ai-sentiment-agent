@@ -125,6 +125,7 @@ class GetInviteCodesRequest(BaseModel):
 class EmailCheckRequest(BaseModel):
     email: EmailStr
 
+
 @router.get("/count", response_model=ProfileCountResponse)
 async def get_profile_count():
     """
