@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict, Any
-from datetime import date
+from datetime import date, datetime, timedelta
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
 import uuid
@@ -12,6 +12,9 @@ import asyncio
 
 
 router = APIRouter()
+
+class SwifeyOTD(BaseModel):
+    gender_preference: str
 
 class Location(BaseModel):
     coords: Optional[Dict[str, Any]] = None
@@ -95,4 +98,41 @@ async def get_nearby_profiles(
             status_code=500,
             detail=f"Error fetching nearby profiles: {str(e)}"
         )
+
+
+@router.post("/swifey_otd" )
+async def get_swifey_otd(
+    request: SwifeyOTD,
+    user_id: str = Depends(verify_app_token),
+):
+    """
+        get the swifey of the day for the user
+    """
+    try:
+        supabase = get_supabase()
+        
+        print(user_id)
+        # First get the user's location
+        swifey_otp = supabase.from_("swifey_otd") \
+            .select(f"{request.gender_preference}, profiles!swifey_otd_{request.gender_preference}_fkey(*)") \
+            .order("created_at", desc=True) \
+            .limit(1) \
+            .single() \
+            .execute()
+
+        return {
+            "success": True,
+            "message": "swifey of the day fetched successfully",
+            "profile": swifey_otp.data or {}
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("Error details:", e)  # Add debug print
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching swifey of the day: {str(e)}"
+        )
+
 
