@@ -9,6 +9,7 @@ import uvicorn
 from .api.chat import router as chat_router
 from .api.embeddings import router as embeddings_router
 from .api.websocket import router as websocket_router
+from .api.categories import router as categories_router
 from .api.webhooks import router as webhook_router
 from .api.auth import router as auth_router
 from .api.profile import router as profile_router
@@ -87,6 +88,13 @@ def get_application() -> FastAPI:
         prefix="/api/v1/ws",
         tags=["chat"]
     )
+
+    app.include_router(
+        categories_router,
+        prefix="/api/v1/categories",
+        tags=["categories"]
+    )
+
     app.include_router(
         webhook_router,
         prefix="/api/v1/webhooks",
@@ -162,6 +170,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/profile/verify-invite-code",
         "/api/v1/profile/create-invitation",
         "/api/v1/profile/me",
+        "/api/v1/categories/nearby",
         "/api/v1/profile/invite-codes",
         "/api/v1/profile/check-email",
         "/api/v1/profile/report",
