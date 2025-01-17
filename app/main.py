@@ -181,6 +181,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/embeddings/embed/texts",
         "/api/v1/chat/truth-bomb",
         "/api/v1/embeddings/search-similar-responses",
+        "/api/v1/ai-coach/my-coaches",
         "/docs",
         "/redoc",
         "/openapi.json",

@@ -16,8 +16,8 @@ class AiCoach(BaseModel):
     symbol: str
     profile_image: str
     prompt: str
-    truth_index: int
-    interaction_freq: int
+    truth_index: Optional[int]
+    interaction_freq: Optional[int]
     who_sees_you_prompt: Optional[str]
     who_you_see_prompt: Optional[str]
     wallet_addr: str
@@ -107,6 +107,29 @@ async def get_ai_coach_cached():
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail="Failed to fetch cached AI coach")
+
+@router.get("/my-coaches")
+async def get_my_coaches(wallet_addr: str, profile_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        response = supabase.from_("ai_agents")\
+            .select('*')\
+            .eq('wallet_addr', wallet_addr)\
+            .execute()
+
+        data = response.data
+
+        return {
+            "data": data,
+            "success": True
+        }
+
+    except Exception as e:
+        print('exception on 128', e)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch AI coaches"
+        )
 
 @router.get("/{coach_id}")
 async def get_ai_coach_by_id(
