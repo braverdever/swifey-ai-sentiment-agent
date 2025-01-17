@@ -49,6 +49,11 @@ class NearbyProfilesResponse(BaseModel):
     message: str
     profiles: List[UserProfile]
 
+class NewUsersResponse(BaseModel):
+    success: bool
+    message: str
+    profiles: List[UserProfile]
+
 @router.get("/nearby", response_model=NearbyProfilesResponse)
 async def get_nearby_profiles(
     user_id: str = Depends(verify_app_token),
@@ -133,6 +138,35 @@ async def get_swifey_otd(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching swifey of the day: {str(e)}"
+        )
+
+@router.get("/new-users", response_model=NewUsersResponse)
+async def get_new_users(
+    user_id: str = Depends(verify_app_token),
+):
+    """
+    Get the 4 newest users from the profiles table.
+    """
+    try:
+        supabase = get_supabase()
+        
+        new_users = supabase.from_("profiles") \
+            .select("*") \
+            .neq("id", user_id) \
+            .order("created_at", desc=True) \
+            .limit(4) \
+            .execute()
+        
+        return {
+            "success": True,
+            "message": "New users fetched successfully",
+            "profiles": new_users.data or []
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching new users: {str(e)}"
         )
 
 
