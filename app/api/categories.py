@@ -55,7 +55,7 @@ class NewUsersResponse(BaseModel):
     message: str
     profiles: List[UserProfile]
 
-@router.get("/nearby", response_model=NearbyProfilesResponse)
+@router.get("/nearby")
 async def get_nearby_profiles(
     user_id: str = Depends(verify_app_token),
     radius_km: float = 50,
@@ -69,32 +69,12 @@ async def get_nearby_profiles(
         supabase = get_supabase()
         
         # First get the user's location
-        user_location = supabase.from_("profiles") \
-            .select("geographical_location") \
-            .eq("id", user_id) \
-            .single() \
-            .execute()
+        response = supabase.rpc("get_nearby_profiles", { "user_id": user_id }).execute()
 
-        if not user_location.data or not user_location.data.get("geographical_location"):
-            raise HTTPException(
-                status_code=400,
-                detail="User location not found"
-            )
-
-        nearby_profiles = supabase.rpc(
-            "get_nearby_profiles",
-            {
-                "user_location": user_location.data["geographical_location"],
-                "search_radius_km": radius_km,
-                "p_limit": limit,
-                "p_user_id": user_id
-            }
-        ).execute()
-        
         return {
             "success": True,
             "message": "Nearby profiles fetched successfully",
-            "profiles": nearby_profiles.data or []
+            "profiles": response.data or []
         }
 
     except HTTPException as e:
