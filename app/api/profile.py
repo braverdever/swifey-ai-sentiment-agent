@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 from datetime import date
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
+from .utils.cache import get_user_by_id, update_user_cache, invalidate_user_cache
 import uuid
 from fastapi import UploadFile, File
 from typing import List
@@ -170,9 +171,9 @@ async def update_user_profile(
             raise HTTPException(status_code=400, detail="No fields to update")
 
         # Get current profile data
-        current_profile = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
+        current_profile = await get_user_by_id(user_id)
         
-        if not current_profile.data:
+        if not current_profile:
             raise HTTPException(status_code=404, detail="Profile not found")
 
         # Fields that need review after initial setup
@@ -182,7 +183,7 @@ async def update_user_profile(
 
         for field, new_value in update_data.items():
             if field in review_fields:
-                current_value = current_profile.data.get(field)
+                current_value = current_profile.get(field)
                 
                 # If current value is None/empty, update directly
                 if current_value is None or current_value == "" or (isinstance(current_value, list) and len(current_value) == 0):
@@ -208,17 +209,25 @@ async def update_user_profile(
                 direct_update_data
             ).eq("id", user_id).execute()
 
+            if result.data:
+                # Invalidate the old cache
+                invalidate_user_cache(user_id)
+                # Update cache with new data
+                await update_user_cache(user_id, result.data[0])
+
         # Create review entries if any
         if review_entries:
             supabase.table("profile_reviews").insert(review_entries).execute()
 
-        # Get updated profile
-        updated_profile = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
+        # Get updated profile with reviews
+        updated_profile = await get_user_by_id(user_id)
+        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+        updated_profile["profile_reviews"] = reviews_response.data
             
         return {
             "success": True,
             "message": "Profile update processed successfully",
-            "profile": updated_profile.data
+            "profile": updated_profile
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -229,25 +238,21 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
     Get the current user's profile using their access token.
     """
     try:
-        supabase = get_supabase()
+        # First try to get from cache
+        profile_data = await get_user_by_id(user_id)
         
-        # Execute queries sequentially since parallel execution causes type issues
-        profile_response = supabase.from_("profiles").select("*").eq("id", user_id).single().execute()
-        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
-
-        if not profile_response.data:
+        if not profile_data:
             raise HTTPException(
                 status_code=404,
                 detail="Profile not found"
             )
 
-        # Create a copy of the profile data to avoid modifying the response object
-        profile_data = dict(profile_response.data)
+        # Get reviews separately since they're not cached
+        supabase = get_supabase()
+        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
         
-        # Add reviews data if profile exists
+        # Add reviews data to profile
         profile_data["profile_reviews"] = reviews_response.data
-
-        print(profile_data)
             
         return {
             "success": True,

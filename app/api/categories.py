@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 from datetime import date, datetime, timedelta
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
+from .utils.cache import get_user_by_id, invalidate_user_cache
 import uuid
 from fastapi import UploadFile, File
 from typing import List
