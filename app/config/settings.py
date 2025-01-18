@@ -14,9 +14,9 @@ MODEL_TYPE = os.getenv("SWIFEY_MODEL_TYPE", "api")
 API_URL = os.getenv("HYPERBOLIC_API_URL")
 API_MODEL = os.getenv("SWIFEY_API_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
 
-REDIS_HOST = os.getenv("SWIFEY_REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("SWIFEY_REDIS_PORT", "6379"))
-REDIS_CACHE_TTL = int(os.getenv("SWIFEY_REDIS_CACHE_TTL", "3600"))
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_CACHE_TTL = int(os.getenv("REDIS_CACHE_TTL", "3600"))
 
 # System settings
 FLUSH_INTERVAL = int(os.getenv("SWIFEY_FLUSH_INTERVAL", "300"))
