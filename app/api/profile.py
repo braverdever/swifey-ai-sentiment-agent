@@ -173,6 +173,9 @@ async def update_user_profile(
         # Get current profile data
         current_profile = await get_user_by_id(user_id)
 
+        if not current_profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
         if current_profile['verification_status'] == 'rejected':
             update_data['verification_status'] = 'inital_review'
             result = supabase.table("profiles").update(
@@ -190,8 +193,6 @@ async def update_user_profile(
                 "profile": updated_profile
             }
         
-        if not current_profile:
-            raise HTTPException(status_code=404, detail="Profile not found")
 
         # Fields that need review after initial setup
         review_fields = {"name", "bio", "photos"}
