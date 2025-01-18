@@ -6,7 +6,7 @@ from ...db.supabase import get_supabase
 from ...config.settings import  REDIS_URL, REDIS_CACHE_TTL
 
 # Initialize Redis client
-redis_client = redis.Redis(
+redis_client = redis.from_url(
     url=REDIS_URL,
     decode_responses=True
 )
