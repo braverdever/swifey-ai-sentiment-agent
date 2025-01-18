@@ -232,14 +232,16 @@ async def update_user_profile(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/me", response_model=ProfileResponse)
+@router.get("/me" )
 async def get_my_profile(request: Request, user_id: str = Depends(verify_app_token)):
     """
     Get the current user's profile using their access token.
     """
     try:
         # First try to get from cache
+        print("user_id", user_id)
         profile_data = await get_user_by_id(user_id)
+        print("profile_data", profile_data)
         
         if not profile_data:
             raise HTTPException(
@@ -256,12 +258,13 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
             
         return {
             "success": True,
-            "message": "Profile fetched successfully", 
-            "user": profile_data
+            "message": "Profile fetched successfully",
+            "profile": profile_data
         }
     except HTTPException as e:
         raise e
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching profile: {str(e)}"
