@@ -172,6 +172,23 @@ async def update_user_profile(
 
         # Get current profile data
         current_profile = await get_user_by_id(user_id)
+
+        if current_profile['verification_status'] == 'rejected':
+            update_data['verification_status'] = 'inital_review'
+            result = supabase.table("profiles").update(
+                update_data
+            ).eq("id", user_id).execute()
+            invalidate_user_cache(user_id)
+            await update_user_cache(user_id, result.data[0])
+            updated_profile = result.data[0]
+            reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+            updated_profile["profile_reviews"] = reviews_response.data
+            
+            return {
+                "success": True,
+                "message": "Profile update processed successfully",
+                "profile": updated_profile
+            }
         
         if not current_profile:
             raise HTTPException(status_code=404, detail="Profile not found")
