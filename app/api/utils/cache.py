@@ -3,13 +3,11 @@ import json
 import os
 from typing import Optional, Dict, Any
 from ...db.supabase import get_supabase
-from ...config.settings import  REDIS_HOST, REDIS_PORT,  REDIS_CACHE_TTL
+from ...config.settings import  REDIS_URL, REDIS_CACHE_TTL
 
 # Initialize Redis client
 redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    db=0,
+    url=REDIS_URL,
     decode_responses=True
 )
 
