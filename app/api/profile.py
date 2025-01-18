@@ -259,7 +259,7 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
         return {
             "success": True,
             "message": "Profile fetched successfully",
-            "profile": profile_data
+            "user": profile_data
         }
     except HTTPException as e:
         raise e
