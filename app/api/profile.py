@@ -106,10 +106,8 @@ class InviteCode(BaseModel):
 
 class UserInvitation(BaseModel):
     invite_code: str
-    invited_user_id: str
 
 class UserReport(BaseModel):
-    report_user_id: str
     report_reason: str
     profile_id: str
 
@@ -118,10 +116,6 @@ class VerifyInviteCode(BaseModel):
 
 class CreateInvitation(BaseModel):
     inviter_code: str
-    invited_user_id: str
-
-class GetInviteCodesRequest(BaseModel):
-    user_id: str
 
 class EmailCheckRequest(BaseModel):
     email: EmailStr
@@ -484,7 +478,8 @@ async def verify_invite_code(
 
 @router.post("/create-invitation", response_model=dict)
 async def create_invitation(
-    invitation: CreateInvitation
+    invitation: CreateInvitation,
+    user_id: str = Depends(verify_app_token)
 ):
     """
     Create a record of a user inviting another user.
@@ -495,7 +490,7 @@ async def create_invitation(
         
         invitation_data = {
             "inviter_code": invitation.inviter_code,
-            "invited_user_id": invitation.invited_user_id,
+            "invited_user_id": user_id,
             "created_at": "now()",
             "updated_at": "now()"
         }
@@ -517,6 +512,7 @@ async def create_invitation(
 @router.post("/report", response_model=dict)
 async def report_user(
     report: UserReport,
+    user_id: str = Depends(verify_app_token)
 ):
     """
     Create a report for a user.
@@ -527,7 +523,7 @@ async def report_user(
         
         report_data = {
             "profile_id": report.profile_id,  
-            "report_user_id": report.report_user_id,  
+            "report_user_id": user_id,  
             "report_reason": report.report_reason,
             "created_at": "now()"
         }
@@ -548,7 +544,7 @@ async def report_user(
 
 @router.post("/invite-codes", response_model=dict)
 async def get_invite_codes(
-    request: GetInviteCodesRequest
+    user_id: str = Depends(verify_app_token)
 ):
     """
     Fetch all invite codes associated with a profile ID.
@@ -557,7 +553,7 @@ async def get_invite_codes(
     try:
         supabase = get_supabase()
         
-        if request.user_id is None or request.user_id.strip() == "":
+        if user_id is None or user_id.strip() == "":
             raise HTTPException(
                 status_code=400,
                 detail="user_id is required"
@@ -565,7 +561,7 @@ async def get_invite_codes(
         
         response = supabase.table("invite_codes") \
             .select("code, status, created_at") \
-            .eq("profile_id", request.user_id) \
+            .eq("profile_id", user_id) \
             .order("created_at", desc=True) \
             .execute()
 
