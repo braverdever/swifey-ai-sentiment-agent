@@ -483,10 +483,22 @@ async def create_invitation(
 ):
     """
     Create a record of a user inviting another user.
-    Stores the invitation details in the user_invitations table.
+    Stores the invitation details in the user_invitations table if not already present.
     """
     try:
         supabase = get_supabase()
+
+        existing = supabase.table("user_invitations") \
+            .select("*") \
+            .eq("invited_user_id", user_id) \
+            .execute()
+
+        if existing.data:
+            return {
+                "success": True,
+                "message": "User invitation already exists",
+                "data": existing.data[0]
+            }
         
         invitation_data = {
             "inviter_code": invitation.inviter_code,
@@ -499,7 +511,7 @@ async def create_invitation(
 
         return {
             "success": True,
-            "message": "User invitation created successfully",
+            "message": "User invitation created successfully", 
             "data": response.data
         }
 
