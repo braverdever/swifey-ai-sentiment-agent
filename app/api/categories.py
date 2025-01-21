@@ -123,19 +123,23 @@ async def get_swifey_otd(
 
 @router.get("/new-users", response_model=NewUsersResponse)
 async def get_new_users(
-    user_id: str = Depends(verify_app_token),
+    gender_preference: str, user_id: str = Depends(verify_app_token)
 ):
     """
     Get the 4 newest users from the profiles table.
     """
     try:
         supabase = get_supabase()
-        
+
+        if gender_preference not in ["male", "woman", "non-binary"] or gender_preference is None:
+            raise HTTPException(status_code=400, detail="Invalid gender_preference")
+
         new_users = supabase.from_("profiles") \
             .select("*") \
+            .eq("gender", gender_preference) \
             .neq("id", user_id) \
             .order("created_at", desc=True) \
-            .limit(4) \
+            .limit(5) \
             .execute()
         
         return {
