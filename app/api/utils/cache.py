@@ -58,7 +58,7 @@ async def update_user_cache(user_id: str, profile_data: Dict[str, Any]) -> None:
     cache_key = f"user_profile:{user_id}"
     redis_client.setex(
         cache_key,
-        CACHE_TTL,
+        300,
         json.dumps(profile_data)
     )
 
