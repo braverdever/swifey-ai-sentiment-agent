@@ -12,6 +12,10 @@ import os
 import time
 import httpx
 from ..config.settings import TURNKEY_API_PUBLIC_KEY, TURNKEY_API_PRIVATE_KEY, TURNKEY_ORGANIZATION_ID
+from jose import jwt
+from ..config.settings import JWT_SECRET
+from datetime import datetime, timedelta
+from ..db.supabase import get_supabase
 
 router = APIRouter()
 
@@ -22,9 +26,11 @@ class InitOTPResponse(BaseModel):
     success: bool
     message: str
     otp_id: str | None = None
+    sub_org_id: str | None = None
 
 class VerifyOTPRequest(BaseModel):
-    email: EmailStr
+    email: str
+    subOrgId: str
     otp: str
     otp_id: str
     target_public_key: str
@@ -35,6 +41,7 @@ class VerifyOTPResponse(BaseModel):
     user_id: str
     api_key_id: str
     credential_bundle: str
+    token: str
 
 def int_to_bytes(value: int, length: int = 32) -> bytes:
     """Convert integer to bytes with fixed length."""
@@ -330,7 +337,8 @@ async def init_otp(request: InitOTPRequest):
             return {
                 "success": True,
                 "message": "OTP initialization successful",
-                "otp_id": otp_id
+                "otp_id": otp_id,
+                "sub_org_id": sub_org_id
             }
             
     except Exception as e:
@@ -343,7 +351,12 @@ async def verify_otp(request: VerifyOTPRequest):
     """
     try:
         # First get the sub-organization ID for the email
-        sub_org_id = await get_sub_org_id(request.email)
+        sub_org_id = request.subOrgId
+        print(request.email)
+        print(request.subOrgId)
+        print(request.otp)
+        print(request.otp_id)
+        print(request.target_public_key)
         
         # Prepare request body
         request_body = {
@@ -376,6 +389,7 @@ async def verify_otp(request: VerifyOTPRequest):
             )
             
             if response.status_code != 200:
+                print(response.text)
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Turnkey API error: {response.text}"
@@ -395,13 +409,32 @@ async def verify_otp(request: VerifyOTPRequest):
                     status_code=500,
                     detail="Failed to get authentication details from response"
                 )
-            
+
+            supabase = get_supabase()
+            user = supabase.table("profiles").select("*").eq("email", request.email).execute().data
+            if not user:
+                user = supabase.table("profiles").insert({"email": request.email}).execute().data
+            print(user)
+            # Create token payload
+            payload = {
+                "sub": user[0]["id"],
+                "iat": datetime.utcnow(),
+            }
+
+            # Sign the token
+            token = jwt.encode(
+                payload,
+                JWT_SECRET,
+                algorithm="HS256"
+            )
+
             return {
                 "success": True,
                 "message": "OTP verification successful",
                 "user_id": user_id,
                 "api_key_id": api_key_id,
-                "credential_bundle": credential_bundle
+                "credential_bundle": credential_bundle,
+                "token": token
             }
             
     except Exception as e:
