@@ -203,12 +203,76 @@ async def get_sub_org_id(email: str) -> str:
         organization_ids = response_data.get("organizationIds", [])
         
         if not organization_ids:
-            raise HTTPException(
-                status_code=404,
-                detail="No sub-organization found for this email"
-            )
+            # create a new sub org
+            organization_id = await create_sub_org(email)
+            return organization_id
         
         return organization_ids[0]
+
+async def create_sub_org(email: str) -> str:
+    """Create a new sub-organization for a given email."""
+    timpestamp = str(int(time.time() * 1000))
+    request_body = {
+        "type": "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V7",
+        "timestampMs": timpestamp,
+        "organizationId": TURNKEY_ORGANIZATION_ID,
+        "parameters": {
+          "subOrganizationName": email,
+          "rootUsers": [
+            {
+              "userName": email,
+              "userEmail": email,
+              "apiKeys": [],
+              "authenticators": [],
+              "oauthProviders": []
+            }
+          ],
+          "rootQuorumThreshold": 1,
+          "wallet": {
+            "walletName": email,
+            "accounts": [
+              {
+                "pathFormat": "PATH_FORMAT_BIP32",
+                "path": "m/44'/501'/0'/0'",
+                "curve": "CURVE_ED25519",
+                "addressFormat": "ADDRESS_FORMAT_SOLANA",
+              }
+            ]
+          }
+        }
+      }
+
+    json_body = json.dumps(request_body)
+    stamp = await generate_api_key_stamp(json_body, TURNKEY_API_PRIVATE_KEY, TURNKEY_API_PUBLIC_KEY)
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.turnkey.com/public/v1/submit/create_sub_organization",
+            content=json_body,
+            headers={
+                "X-Stamp": stamp,
+                "Content-Type": "application/json"
+            }
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to create sub org: {response.text}"
+            )
+        
+        response_data = response.json()
+        '''
+          return createSubOrgResponse['activity']['result']
+      ['createSubOrganizationResultV7']['subOrganizationId'] as String;
+        '''
+        organization_id = response_data['activity']['result']['createSubOrganizationResultV7']['subOrganizationId']
+        print("new sub org created and its id", organization_id)
+
+        if not organization_id:
+            raise Exception('Failed to create sub-organization')
+
+        return organization_id
 
 @router.post("/initotp", response_model=InitOTPResponse)
 async def init_otp(request: InitOTPRequest):
