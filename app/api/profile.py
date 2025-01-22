@@ -196,7 +196,18 @@ async def update_user_profile(
         for field, new_value in update_data.items():
             if field in review_fields:
                 current_value = current_profile.get(field)
-                
+                # If the field is photos, and just the order is changed, update directly
+                if field == "photos" and isinstance(current_value, list) and len(current_value) == len(new_value):
+                    print('values to be updated', new_value)
+                    print('photos length is same, checking order')
+                    print(sorted(current_value))
+                    print(sorted(new_value))
+                    print('checking if order is same', sorted(current_value) == sorted(new_value))
+                    if sorted(current_value) == sorted(new_value):
+                        print('photos just changed the order no need to go to review')
+                        direct_update_data[field] = new_value
+                        continue
+
                 # If current value is None/empty, update directly
                 if current_value is None or current_value == "" or (isinstance(current_value, list) and len(current_value) == 0):
                     direct_update_data[field] = new_value
