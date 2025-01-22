@@ -118,9 +118,10 @@ async def get_my_coaches(wallet_addr: str, profile_id: str = Depends(verify_app_
             .execute()
 
         data = response.data
+        enriched_data = [add_category_to_agent(agent) for agent in data]
 
         return {
-            "data": data,
+            "data": enriched_data,
             "success": True
         }
 

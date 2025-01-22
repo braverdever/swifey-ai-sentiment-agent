@@ -137,6 +137,7 @@ async def get_new_users(
         new_users = supabase.from_("profiles") \
             .select("*") \
             .eq("gender", gender_preference) \
+            .eq("verification_status", "approved") \
             .neq("id", user_id) \
             .order("created_at", desc=True) \
             .limit(5) \
