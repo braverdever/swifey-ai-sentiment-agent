@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import httpx
 import json
-from ..config.settings import HELIUS_API_KEY
+from ..config.settings import ASTRALANE_API_KEY
 from datetime import datetime
 from ..utils.helpers import generate_cache_key
 import redis
@@ -22,46 +22,92 @@ redis_client = redis.Redis(
 PRICE_CACHE_TTL = 60  # 1 minute for price
 OHLCV_CACHE_TTL = 300  # 5 minutes for OHLCV
 
+# API Headers
+API_HEADERS = {
+    "x-api-key": ASTRALANE_API_KEY,
+    "Content-Type": "application/json"
+}
+
+# Supported intervals for OHLCV
+SUPPORTED_INTERVALS = {
+    "1s": "1 SECOND",
+    "5s": "5 SECONDS",
+    "15s": "15 SECONDS",
+    "1m": "1 MINUTE",
+    "3m": "3 MINUTES",
+    "5m": "5 MINUTES",
+    "15m": "15 MINUTES",
+    "30m": "30 MINUTES",
+    "1h": "1 HOUR",
+    "4h": "4 HOURS",
+    "6h": "6 HOURS",
+    "8h": "8 HOURS",
+    "12h": "12 HOURS",
+    "1d": "1 DAY"
+}
+
 class TokenPriceResponse(BaseModel):
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
 
 class OHLCVData(BaseModel):
-    timestamp: int
+    time: int
     open: float
     high: float
     low: float
     close: float
     volume: float
+    volume_usd: float
 
 class OHLCVResponse(BaseModel):
     success: bool
     message: str
     data: Optional[List[OHLCVData]] = None
 
-@router.get("/price/{token_mint}", response_model=TokenPriceResponse)
-async def get_token_price(token_mint: str):
+@router.get("/price", response_model=TokenPriceResponse)
+async def get_token_prices(tokens: str):
     """
-    Get the price of a token using the Jupiter Price API.
+    Get prices for multiple tokens using the Astralane GraphQL API.
     Includes 1-minute Redis caching.
     """
     try:
         # Try to get from cache first
-        cache_key = generate_cache_key("token_price", token_mint)
+        cache_key = generate_cache_key("token_prices", tokens)
         cached_data = redis_client.get(cache_key)
         
         if cached_data:
             return {
                 "success": True,
-                "message": "Token price fetched from cache",
+                "message": "Token prices fetched from cache",
                 "data": json.loads(cached_data)
             }
+
+        # GraphQL query for token prices
+        query = """
+        query GetTokenPrices($tokens: [String!]!) {
+            tokens(addresses: $tokens) {
+                address
+                price
+                priceChange24h
+                volume24h
+            }
+        }
+        """
         
+        variables = {
+            "tokens": tokens.split(",")
+        }
+
         # If not in cache, fetch from API
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://price.jup.ag/v4/price?ids={token_mint}",
+            response = await client.post(
+                "https://graphql.astralane.io",
+                headers=API_HEADERS,
+                json={
+                    "query": query,
+                    "variables": variables
+                },
                 timeout=10.0
             )
             
@@ -72,7 +118,7 @@ async def get_token_price(token_mint: str):
                 )
             
             data = response.json()
-            token_data = data.get("data", {}).get(token_mint)
+            token_data = data.get("data", {}).get("tokens", {})
             
             # Cache the result
             if token_data:
@@ -84,7 +130,7 @@ async def get_token_price(token_mint: str):
             
             return {
                 "success": True,
-                "message": "Token price fetched successfully",
+                "message": "Token prices fetched successfully",
                 "data": token_data
             }
             
@@ -96,29 +142,35 @@ async def get_token_price(token_mint: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch token price: {str(e)}"
+            detail=f"Failed to fetch token prices: {str(e)}"
         )
 
-@router.get("/ohlcv/{token_mint}", response_model=OHLCVResponse)
+@router.get("/ohlcv/{pool_address}", response_model=OHLCVResponse)
 async def get_token_ohlcv(
-    token_mint: str,
-    resolution: str = "1D",  # Default to 1 day
-    start_time: Optional[int] = None,
-    end_time: Optional[int] = None
+    pool_address: str,
+    interval: str = "1m",  # Default to 1 minute
+    from_time: Optional[int] = None,
+    to_time: Optional[int] = None
 ):
     """
-    Get OHLCV (Open, High, Low, Close, Volume) data for a token.
+    Get OHLCV (Open, High, Low, Close, Volume) data for a token pool.
     Includes 5-minute Redis caching.
     
     Parameters:
-    - token_mint: The token's mint address
-    - resolution: Time resolution (1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 1D, 1W, 1M)
-    - start_time: Optional start time in Unix timestamp (seconds)
-    - end_time: Optional end time in Unix timestamp (seconds)
+    - pool_address: The pool address to fetch OHLCV data for
+    - interval: Time interval (1s, 5s, 15s, 1m, 3m, 5m, 15m, 30m, 1h, 4h, 6h, 8h, 12h, 1d)
+    - from_time: Optional start time in Unix timestamp (seconds)
+    - to_time: Optional end time in Unix timestamp (seconds)
     """
     try:
+        if interval not in SUPPORTED_INTERVALS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported interval. Supported intervals are: {', '.join(SUPPORTED_INTERVALS.keys())}"
+            )
+
         # Generate cache key including all parameters
-        cache_params = f"{token_mint}:{resolution}:{start_time}:{end_time}"
+        cache_params = f"{pool_address}:{interval}:{from_time}:{to_time}"
         cache_key = generate_cache_key("token_ohlcv", cache_params)
         
         # Try to get from cache first
@@ -131,15 +183,16 @@ async def get_token_ohlcv(
             }
 
         # Build query parameters
-        params = {"resolution": resolution}
-        if start_time:
-            params["start_time"] = start_time
-        if end_time:
-            params["end_time"] = end_time
+        params = {"interval": interval}
+        if from_time:
+            params["from"] = from_time
+        if to_time:
+            params["to"] = to_time
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://price.jup.ag/v4/ohlcv/{token_mint}",
+                f"https://graphql.astralane.io/api/v1/dataset/trade/ohlcv/{pool_address}",
+                headers=API_HEADERS,
                 params=params,
                 timeout=10.0
             )
@@ -152,30 +205,18 @@ async def get_token_ohlcv(
             
             data = response.json()
             
-            # Transform the data into our response format
-            ohlcv_data = []
-            for candle in data.get("data", []):
-                ohlcv_data.append(OHLCVData(
-                    timestamp=candle[0],
-                    open=candle[1],
-                    high=candle[2],
-                    low=candle[3],
-                    close=candle[4],
-                    volume=candle[5]
-                ))
-            
-            # Cache the transformed data
-            if ohlcv_data:
+            # Cache the raw data
+            if data:
                 redis_client.setex(
                     cache_key,
                     OHLCV_CACHE_TTL,
-                    json.dumps([candle.dict() for candle in ohlcv_data])
+                    json.dumps(data)
                 )
             
             return {
                 "success": True,
                 "message": "OHLCV data fetched successfully",
-                "data": ohlcv_data
+                "data": data
             }
             
     except httpx.TimeoutException:

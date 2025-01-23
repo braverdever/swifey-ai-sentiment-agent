@@ -38,6 +38,9 @@ SUPABASE_KEY = os.getenv("SWIFEY_SUPABASE_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = "2185680092/10101"  # Hardcoded specific chat ID
 
+# Astralane settings
+ASTRALANE_API_KEY = os.getenv("ASTRALANE_API_KEY")
+
 # Validate required settings
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Supabase URL and key must be provided in environment variables")
