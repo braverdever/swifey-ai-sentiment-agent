@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -12,7 +16,6 @@ import (
 
 	"github.com/mihirpenugonda/swifey-sentiment-agent/keygen-app/kafka"
 	"github.com/mr-tron/base58"
-	"github.com/supabase-community/supabase-go"
 	ed25519 "golang.org/x/crypto/ed25519"
 )
 
@@ -21,9 +24,16 @@ var (
 	totalGenerated int
 	mutex          sync.Mutex
 	suffixes       []string
-	supabaseClient *supabase.Client
+	supabaseUrl    string
+	supabaseKey    string
 	kafkaProducer  *kafka.Producer
 )
+
+type TokenContract struct {
+	PublicKey  string    `json:"public_key"`
+	PrivateKey string    `json:"private_key"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 func init() {
 	// Load suffixes from env
@@ -34,17 +44,11 @@ func init() {
 		suffixes = []string{"LoVE", "LovE", "lovE", "love", "loVE"}
 	}
 
-	// Initialize Supabase client
-	supabaseUrl := os.Getenv("SUPABASE_URL")
-	supabaseKey := os.Getenv("SUPABASE_KEY")
+	// Initialize Supabase configuration
+	supabaseUrl = os.Getenv("SUPABASE_URL")
+	supabaseKey = os.Getenv("SUPABASE_KEY")
 	if supabaseUrl == "" || supabaseKey == "" {
 		log.Fatal("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
-	}
-
-	var err error
-	supabaseClient = supabase.CreateClient(supabaseUrl, supabaseKey)
-	if err != nil {
-		log.Fatalf("Failed to create Supabase client: %v", err)
 	}
 
 	// Initialize Kafka producer
@@ -53,6 +57,37 @@ func init() {
 		log.Fatalf("Failed to create Kafka producer: %v", err)
 	}
 	kafkaProducer = producer
+}
+
+func storeInSupabase(contract TokenContract) error {
+	url := fmt.Sprintf("%s/rest/v1/token_contracts", supabaseUrl)
+	jsonData, err := json.Marshal(contract)
+	if err != nil {
+		return fmt.Errorf("failed to marshal contract: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("apikey", supabaseKey)
+	req.Header.Set("Authorization", "Bearer "+supabaseKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "return=minimal")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("failed to store contract: status code %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func generateKeyPairs(wg *sync.WaitGroup, jobs <-chan struct{}) {
@@ -77,11 +112,12 @@ func generateKeyPairs(wg *sync.WaitGroup, jobs <-chan struct{}) {
 				privKeyHex := hex.EncodeToString(privateKey.Seed())
 				
 				// Store in Supabase
-				_, err := supabaseClient.DB.From("token_contracts").Insert(map[string]interface{}{
-					"public_key": pubKeyStr,
-					"private_key": privKeyHex,
-				}).Execute()
-				if err != nil {
+				contract := TokenContract{
+					PublicKey:  pubKeyStr,
+					PrivateKey: privKeyHex,
+					CreatedAt:  time.Now(),
+				}
+				if err := storeInSupabase(contract); err != nil {
 					log.Printf("Error storing key in Supabase: %v", err)
 				}
 
