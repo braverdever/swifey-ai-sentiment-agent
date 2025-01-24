@@ -134,7 +134,7 @@ def get_application() -> FastAPI:
     @app.get("/fetch-configuration")
     async def fetch_configuration():
         return { "shouldShowWaitlist": False, 
-        "audioEnabled": False, "aiAgentEnabled": True, "webUrl": 'https://swifey-web-sigma.vercel.app' }
+        "audioEnabled": False, "aiAgentEnabled": True, "webUrl": 'https://swifey-web-sigma.vercel.app', "version": "1.0.6"}
 
 
     return app

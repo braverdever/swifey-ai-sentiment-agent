@@ -367,7 +367,8 @@ async def verify_otp(request: VerifyOTPRequest):
                 "otpId": request.otp_id,
                 "otpCode": request.otp,
                 "targetPublicKey": request.target_public_key,
-                "apiKeyName": f"OTP Auth - {time.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                "apiKeyName": f"OTP Auth - {time.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                "expirationSeconds": "2600000" 
             }
         }
         
