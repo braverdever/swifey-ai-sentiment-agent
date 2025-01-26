@@ -59,7 +59,7 @@ class NewUsersResponse(BaseModel):
 async def get_nearby_profiles(
     user_id: str = Depends(verify_app_token),
     radius_km: float = 50,
-    limit: int = 20
+    limit: int = 8
 ):
     """
     Get nearby profiles within specified radius (default 50km).

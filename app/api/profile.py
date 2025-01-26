@@ -296,7 +296,7 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
 @router.get("/matched_profiles", response_model=MatchedProfileResponse)
 async def get_matched_profiles(
     user_id: str = Depends(verify_app_token),
-    limit: int = 20,
+    limit: int = 8,
     offset: int = 0
 ):
     try: 

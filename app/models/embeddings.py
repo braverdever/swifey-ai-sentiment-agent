@@ -145,7 +145,7 @@ class OptimizedEmbeddingManager:
         response: str,
         user_id: str,
         agent_id: Optional[str] = None,
-        per_page: int = 20,
+        per_page: int = 8,
     ) -> Dict[str, Any]:
         """Search for similar responses using improved semantic similarity scoring"""
         try:
