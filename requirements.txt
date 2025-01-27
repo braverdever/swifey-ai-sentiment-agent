@@ -30,6 +30,7 @@ git+https://github.com/openai/CLIP.git
 selenium>=4.15.0
 google-auth>=2.22.0
 google-auth-httplib2>=0.1.0
+httpx>=0.25.0
 google-api-python-client>=2.0.0
 google-cloud-storage>=2.10.0
 firebase-admin>=6.2.0

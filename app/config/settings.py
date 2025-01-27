@@ -10,9 +10,11 @@ CONFIG_DIR = BASE_DIR / "config"
 # Model settings
 MODEL_TYPE = os.getenv("SWIFEY_MODEL_TYPE", "api")  
 
-# API model settings
-API_URL = os.getenv("HYPERBOLIC_API_URL")
-API_MODEL = os.getenv("SWIFEY_API_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+TEXT_API_URL = os.getenv("HYPERBOLIC_TEXT_API_URL")
+TEXT_API_MODEL = os.getenv("HYPERBOLIC_TEXT_API_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+
+IMAGE_API_URL = os.getenv("HYPERBOLIC_IMAGE_API_URL")
+IMAGE_API_MODEL = os.getenv("HYPERBOLIC_IMAGE_API_MODEL", "FLUX.1-dev")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -46,10 +48,16 @@ if not TELEGRAM_BOT_TOKEN:
     raise ValueError("Telegram bot token must be provided in environment variables")
 
 # LLM configuration
-LLM_CONFIG = {
+TEXT_LLM_CONFIG = {
     "type": MODEL_TYPE,
-    "model": API_MODEL,
-    "api_url": API_URL,
+    "model": TEXT_API_MODEL,
+    "api_url": TEXT_API_URL,
+    "api_key": os.getenv("HYPERBOLIC_API_KEY")
+}
+
+IMAGE_LLM_CONFIG = {
+    "model": IMAGE_API_MODEL,
+    "api_url": IMAGE_API_URL,
     "api_key": os.getenv("HYPERBOLIC_API_KEY")
 }
 
