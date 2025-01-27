@@ -57,7 +57,6 @@ Example for "I want to meet gym enthusiasts":
                 symbol=details["symbol"],
                 description=details["description"],
                 category=details["category"],
-                theme=details["theme"],
                 user_prompt=prompt,
                 creation_state=AgentCreationState.AWAITING_CONFIRMATION
             )
@@ -107,102 +106,24 @@ async def generate_agent_image(agent_details: AgentDetails, theme: str) -> Optio
         logger.error(f"Error generating image: {str(e)}")
         return None
 
-async def modify_name(message: ChatMessage) -> ChatResponse:
-    """Handle name modification"""
-    new_name = message.content.strip()
+async def handle_confirmation(message: ChatMessage) -> ChatResponse:
+    """Generate dynamic confirmation messages based on context"""
+    confirmation_prompt = f"""Generate a confirmation message for this AI agent:
+    Name: {message.agent_details.name}
+    Symbol: {message.agent_details.symbol}
+    Description: {message.agent_details.description}
     
-    if len(new_name) < 3 or len(new_name) > 50:
-        error_prompt = "Generate message asking for valid name length (3-50 chars)"
-        error_text = await generate_text_response(error_prompt)
-        return ChatResponse(
-            text=error_text,
-            message_type=MessageType.AGENT_NAME_UPDATE,
-            agent_details=message.agent_details
-        )
+    Requirements:
+    1. Keep it brief and clear
+    2. Ask for simple yes/no confirmation
+    3. No small talk or unnecessary text"""
     
-    message.agent_details.name = new_name
-    return await show_updated_agent(message.agent_details)
-
-async def modify_description(message: ChatMessage) -> ChatResponse:
-    """Handle description modification"""
-    new_description = message.content.strip()
-    
-    if len(new_description) > 200:
-        error_prompt = "Generate message asking for shorter description"
-        error_text = await generate_text_response(error_prompt)
-        return ChatResponse(
-            text=error_text,
-            message_type=MessageType.AGENT_DESCRIPTION_UPDATE,
-            agent_details=message.agent_details
-        )
-    
-    message.agent_details.description = new_description
-    return await show_updated_agent(message.agent_details)
-
-async def modify_theme(message: ChatMessage) -> ChatResponse:
-    """Handle theme/image modification"""
-    new_theme = message.content.strip()
-    
-    # Generate new image with updated theme
-    image_url = await generate_agent_image(message.agent_details, new_theme)
-    if image_url:
-        message.agent_details.image_url = image_url
-        message.agent_details.theme = new_theme
-        
-        confirm_prompt = """Generate message showing new image and asking for confirmation.
-        Keep it brief, yes/no question."""
-        
-        confirm_text = await generate_text_response(confirm_prompt)
-        return ChatResponse(
-            text=confirm_text,
-            image_encoding=image_url,
-            message_type=MessageType.AGENT_IMAGE_UPDATE,
-            agent_details=message.agent_details
-        )
-    
-    error_prompt = "Generate message about image generation failure, ask to try again"
-    error_text = await generate_text_response(error_prompt)
+    confirmation_text = await generate_text_response(confirmation_prompt)
     return ChatResponse(
-        text=error_text,
-        message_type=MessageType.AGENT_MODIFY,
-        agent_details=message.agent_details
-    )
-
-async def modify_symbol(message: ChatMessage) -> ChatResponse:
-    """Handle symbol modification"""
-    new_symbol = message.content.strip().upper()
-    
-    if len(new_symbol) < 4 or len(new_symbol) > 5:
-        error_prompt = "Generate message asking for valid symbol length (4-5 chars)"
-        error_text = await generate_text_response(error_prompt)
-        return ChatResponse(
-            text=error_text,
-            message_type=MessageType.AGENT_SYMBOL_UPDATE,
-            agent_details=message.agent_details
-        )
-    
-    message.agent_details.symbol = new_symbol
-    return await show_updated_agent(message.agent_details)
-
-async def show_updated_agent(agent_details: AgentDetails) -> ChatResponse:
-    """Show updated agent details and ask for further modifications"""
-    update_prompt = f"""Generate message showing updated agent details:
-    Name: {agent_details.name}
-    Symbol: {agent_details.symbol}
-    Description: {agent_details.description}
-    
-    Ask if they want to:
-    1. Make more changes
-    2. Finish updating
-    
-    Keep it brief and clear."""
-    
-    update_text = await generate_text_response(update_prompt)
-    return ChatResponse(
-        text=update_text,
-        image_encoding=agent_details.image_url,
+        text=confirmation_text,
+        image_encoding=message.agent_details.image_url,
         message_type=MessageType.AGENT_CONFIRMATION,
-        agent_details=agent_details
+        agent_details=message.agent_details
     )
 
 async def handle_creation_flow(message: ChatMessage) -> ChatResponse:
@@ -277,14 +198,6 @@ async def handle_creation_flow(message: ChatMessage) -> ChatResponse:
                     agent_details=message.agent_details
                 )
 
-        # Handle modifications
-        if state in [AgentCreationState.MODIFYING_DETAILS, 
-                    AgentCreationState.MODIFYING_NAME,
-                    AgentCreationState.MODIFYING_DESCRIPTION,
-                    AgentCreationState.MODIFYING_THEME,
-                    AgentCreationState.MODIFYING_SYMBOL]:
-            return await handle_modification(message)
-
         # Handle confirmation responses
         if state == AgentCreationState.AWAITING_CONFIRMATION:
             if content_lower in ['yes', 'y', 'sure', 'ok', 'okay']:
@@ -329,198 +242,6 @@ async def handle_creation_flow(message: ChatMessage) -> ChatResponse:
             agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
         )
 
-async def handle_confirmation(message: ChatMessage) -> ChatResponse:
-    """Generate dynamic confirmation messages based on context"""
-    confirmation_prompt = f"""Generate a confirmation message for this AI agent:
-    Name: {message.agent_details.name}
-    Symbol: {message.agent_details.symbol}
-    Description: {message.agent_details.description}
-    
-    Requirements:
-    1. Keep it brief and clear
-    2. Ask for simple yes/no confirmation
-    3. No small talk or unnecessary text"""
-    
-    confirmation_text = await generate_text_response(confirmation_prompt)
-    return ChatResponse(
-        text=confirmation_text,
-        image_encoding=message.agent_details.image_url,
-        message_type=MessageType.AGENT_CONFIRMATION,
-        agent_details=message.agent_details
-    )
-
-async def handle_modification(message: ChatMessage) -> ChatResponse:
-    """Handle modifications to agent details"""
-    content_lower = message.content.lower()
-    
-    # If first time entering modification mode, show options
-    if message.agent_details.creation_state == AgentCreationState.COMPLETED:
-        edit_prompt = f"""Generate modification options for the AI agent:
-        Current Details:
-        - Name: {message.agent_details.name}
-        - Symbol: {message.agent_details.symbol}
-        - Description: {message.agent_details.description}
-        - Theme: {message.agent_details.theme}
-        - Truth Index: {message.agent_details.truth_index}
-        - Frequency: {message.agent_details.interaction_frequency}
-
-        List available modifications and ask what they'd like to change.
-        Format as numbered list (1-6).
-        Keep it brief and clear."""
-        
-        options_text = await generate_text_response(edit_prompt)
-        message.agent_details.creation_state = AgentCreationState.MODIFYING_DETAILS
-        return ChatResponse(
-            text=options_text,
-            message_type=MessageType.AGENT_MODIFY,
-            agent_details=message.agent_details
-        )
-
-    # Handle specific modification requests
-    modification_map = {
-        "1": AgentCreationState.MODIFYING_NAME,
-        "name": AgentCreationState.MODIFYING_NAME,
-        "2": AgentCreationState.MODIFYING_DESCRIPTION,
-        "description": AgentCreationState.MODIFYING_DESCRIPTION,
-        "3": AgentCreationState.MODIFYING_THEME,
-        "image": AgentCreationState.MODIFYING_THEME,
-        "theme": AgentCreationState.MODIFYING_THEME,
-        "4": AgentCreationState.SETTING_TRUTH_INDEX,
-        "truth": AgentCreationState.SETTING_TRUTH_INDEX,
-        "5": AgentCreationState.SETTING_FREQUENCY,
-        "frequency": AgentCreationState.SETTING_FREQUENCY,
-        "6": AgentCreationState.MODIFYING_SYMBOL,
-        "symbol": AgentCreationState.MODIFYING_SYMBOL,
-        "done": AgentCreationState.COMPLETED,
-        "finish": AgentCreationState.COMPLETED,
-        "complete": AgentCreationState.COMPLETED
-    }
-
-    if content_lower in modification_map:
-        new_state = modification_map[content_lower]
-        
-        if new_state == AgentCreationState.COMPLETED:
-            completion_prompt = f"""Generate a completion message showing final agent details:
-            Name: {message.agent_details.name}
-            Symbol: {message.agent_details.symbol}
-            Description: {message.agent_details.description}
-            Theme: {message.agent_details.theme}
-            Truth Index: {message.agent_details.truth_index}
-            Frequency: {message.agent_details.interaction_frequency}
-            
-            Keep it brief and professional."""
-            
-            completion_text = await generate_text_response(completion_prompt)
-            message.agent_details.creation_state = AgentCreationState.COMPLETED
-            return ChatResponse(
-                text=completion_text,
-                image_encoding=message.agent_details.image_url,
-                message_type=MessageType.AGENT_COMPLETE,
-                agent_details=message.agent_details
-            )
-        
-        message.agent_details.creation_state = new_state
-        return await generate_modification_prompt(message.agent_details, new_state)
-
-    # Handle actual modifications based on state
-    if message.agent_details.creation_state == AgentCreationState.MODIFYING_NAME:
-        return await modify_name(message)
-    elif message.agent_details.creation_state == AgentCreationState.MODIFYING_DESCRIPTION:
-        return await modify_description(message)
-    elif message.agent_details.creation_state == AgentCreationState.MODIFYING_THEME:
-        return await modify_theme(message)
-    elif message.agent_details.creation_state == AgentCreationState.MODIFYING_SYMBOL:
-        return await modify_symbol(message)
-    elif message.agent_details.creation_state == AgentCreationState.SETTING_TRUTH_INDEX:
-        return await handle_truth_index(message.content, message.agent_details)
-    elif message.agent_details.creation_state == AgentCreationState.SETTING_FREQUENCY:
-        return await handle_frequency(message.content, message.agent_details)
-    
-    # If we don't recognize the input, ask again
-    retry_prompt = """Generate a message asking user to select a valid modification option.
-    Keep it brief and clear. List options 1-6."""
-    
-    retry_text = await generate_text_response(retry_prompt)
-    return ChatResponse(
-        text=retry_text,
-        message_type=MessageType.AGENT_MODIFY,
-        agent_details=message.agent_details
-    )
-
-async def handle_frequency(content: str, agent_details: AgentDetails) -> ChatResponse:
-    """Handle frequency setting with validation"""
-    content_lower = content.lower()
-    valid_responses = {
-        "1": "rarely", "rarely": "rarely",
-        "2": "sometimes", "sometimes": "sometimes",
-        "3": "often", "often": "often"
-    }
-    
-    if content_lower in valid_responses:
-        agent_details.interaction_frequency = valid_responses[content_lower]
-        agent_details.creation_state = AgentCreationState.COMPLETED
-        
-        completion_prompt = f"""Generate confirmation with final agent settings:
-        Name: {agent_details.name}
-        Symbol: {agent_details.symbol}
-        Description: {agent_details.description}
-        Frequency: {agent_details.interaction_frequency}
-        
-        Keep it brief and clear."""
-        
-        completion_text = await generate_text_response(completion_prompt)
-        return ChatResponse(
-            text=completion_text,
-            message_type=MessageType.AGENT_COMPLETE,
-            agent_details=agent_details
-        )
-    
-    error_prompt = "Generate message asking for valid frequency (rarely/sometimes/often)"
-    error_text = await generate_text_response(error_prompt)
-    return ChatResponse(
-        text=error_text,
-        message_type=MessageType.AGENT_FREQUENCY_UPDATE,
-        agent_details=agent_details
-    )
-
-async def generate_modification_prompt(agent_details: AgentDetails, state: AgentCreationState) -> ChatResponse:
-    """Generate appropriate prompt for the modification state"""
-    prompts = {
-        AgentCreationState.MODIFYING_NAME: "Please enter a new memecoin-style name for your agent (like DOGE, PEPE).",
-        AgentCreationState.MODIFYING_DESCRIPTION: "Please enter a new description (keep it under 20 words).",
-        AgentCreationState.MODIFYING_THEME: "Please suggest a new theme/character for your agent's image.",
-        AgentCreationState.MODIFYING_SYMBOL: "Please enter a new 4-5 letter ticker symbol (like DOGE, SHIB).",
-        AgentCreationState.SETTING_TRUTH_INDEX: "Please enter a Truth Index (1-100) for conversation depth.",
-        AgentCreationState.SETTING_FREQUENCY: "How often should your agent interact? Choose: rarely, sometimes, or often."
-    }
-    
-    return ChatResponse(
-        text=prompts.get(state, "Please select what you'd like to modify."),
-        message_type=MessageType.AGENT_MODIFY,
-        agent_details=agent_details
-    )
-
-async def handle_truth_index(content: str, agent_details: AgentDetails) -> ChatResponse:
-    """Handle truth index setting with validation"""
-    try:
-        truth_index = int(content)
-        if 1 <= truth_index <= 100:
-            agent_details.truth_index = truth_index
-            agent_details.creation_state = AgentCreationState.SETTING_FREQUENCY
-            return ChatResponse(
-                text="How often should your agent interact? Choose:\n1. Rarely\n2. Sometimes\n3. Often\n\nType the number or word.",
-                message_type=MessageType.AGENT_FREQUENCY_UPDATE,
-                agent_details=agent_details
-            )
-    except ValueError:
-        pass
-    
-    return ChatResponse(
-        text="Please enter a valid number between 1 and 100 for the Truth Index.",
-        message_type=MessageType.AGENT_TRUTH_INDEX_UPDATE,
-        agent_details=agent_details
-    )
-
 @router.post("/chat", response_model=ChatResponse)
 async def chat(message: ChatMessage) -> ChatResponse:
     """Process chat messages and return responses"""
@@ -542,58 +263,6 @@ async def chat(message: ChatMessage) -> ChatResponse:
                 message_type=MessageType.TEXT,
                 agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
             )
-
-        # Handle "start over" requests
-        if content_lower in ["start over", "restart", "new agent", "begin again"]:
-            restart_prompt = "Generate message asking user to describe their ideal match"
-            restart_text = await generate_text_response(restart_prompt)
-            return ChatResponse(
-                text=restart_text,
-                message_type=MessageType.TEXT,
-                agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
-            )
-
-        # Handle view current agent
-        if content_lower == "view":
-            if not message.agent_details or not message.agent_details.name:
-                no_agent_prompt = "Generate message saying no agent exists yet"
-                no_agent_text = await generate_text_response(no_agent_prompt)
-                return ChatResponse(
-                    text=no_agent_text,
-                    message_type=MessageType.TEXT,
-                    agent_details=None
-                )
-            
-            view_prompt = f"""Generate message showing current agent details:
-            Name: {message.agent_details.name}
-            Symbol: {message.agent_details.symbol}
-            Description: {message.agent_details.description}
-            Theme: {message.agent_details.theme}
-            Truth Index: {message.agent_details.truth_index}
-            Frequency: {message.agent_details.interaction_frequency}
-            
-            Ask if they want to modify anything."""
-            
-            view_text = await generate_text_response(view_prompt)
-            return ChatResponse(
-                text=view_text,
-                image_encoding=message.agent_details.image_url,
-                message_type=MessageType.AGENT_DETAILS,
-                agent_details=message.agent_details
-            )
-
-        # Handle modification requests
-        if content_lower in ["modify", "edit", "change", "update"]:
-            if not message.agent_details or not message.agent_details.name:
-                no_agent_prompt = "Generate message saying no agent exists to modify"
-                no_agent_text = await generate_text_response(no_agent_prompt)
-                return ChatResponse(
-                    text=no_agent_text,
-                    message_type=MessageType.TEXT,
-                    agent_details=None
-                )
-            
-            return await handle_modification(message)
 
         # Handle existing conversation flow
         return await handle_creation_flow(message)
@@ -633,9 +302,3 @@ def validate_agent_details(details: dict) -> None:
     
     if len(details["description"]) > 200:
         raise ValueError("Description too long")
-    
-    if len(details["symbol"]) < 4 or len(details["symbol"]) > 5:
-        raise ValueError("Invalid symbol length")
-    
-    if len(details["name"]) < 3 or len(details["name"]) > 50:
-        raise ValueError("Invalid name length")
