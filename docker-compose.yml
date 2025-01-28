@@ -1,15 +1,6 @@
 version: "3.8"
 
 services:
-  keygen:
-    build:
-      context: ./keygen-app
-      dockerfile: Dockerfile
-    env_file:
-      - ./keygen-app/.env
-    depends_on:
-      - kafka
-
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     environment:
