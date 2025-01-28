@@ -16,6 +16,7 @@ from .api.profile import router as profile_router
 from .api.chat_ws import router as chat_ws_router
 from .api.turnkey import router as turnkey_router
 from .api.notification import router as notification_router
+from .api.token_price import router as token_price_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 from .api.ai_coach import router as ai_coach_router
@@ -100,6 +101,13 @@ def get_application() -> FastAPI:
         prefix="/api/v1/webhooks",
         tags=["webhooks"]
     )
+
+    app.include_router(
+        token_price_router,
+        prefix="/api/v1/token",
+        tags=["token"]
+    )
+
     app.include_router(
         ai_coach_router,
         prefix="/api/v1/ai-coach",
