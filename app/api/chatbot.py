@@ -1,304 +1,209 @@
 import logging
 from fastapi import APIRouter, HTTPException
+import json
 from app.models.chat import (
     ChatMessage, ChatResponse, MessageType, AgentDetails,
-    AgentCreationState
+    AgentCreationState, generate_text_response, generate_image
 )
-from app.models.chat import generate_text_response, generate_image
-from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-async def analyze_user_prompt(prompt: str, is_regeneration: bool = False) -> AgentDetails:
-    """Analyze user prompt to extract agent details"""
-    context = "Generate a DIFFERENT agent profile than before. Be more creative and unique." if is_regeneration else ""
-    
-    analysis_prompt = f"""{context}
-Create a memecoin-style AI matching agent based on: "{prompt}"
+async def analyze_user_prompt(prompt: str) -> AgentDetails:
+    """Analyze user prompt to create agent details including AI-decided parameters"""
+    analysis_prompt = f"""Analyze this description of desired connections and create a memecoin-style AI matching agent.
+User description: "{prompt}"
 
-Return ONLY a JSON object with these fields:
+You must respond with ONLY a JSON object in this exact format:
 {{
-    "name": "memecoin-style name (like DOGE, PEPE)",
-    "symbol": "4-5 letter ticker symbol",
-    "description": "engaging description under 20 words",
-    "category": "VIBE/LOOK/LIFESTYLE",
-    "theme": "animal/character theme for the logo"
-}}
-
-Requirements:
-1. name: Create a catchy memecoin-style name (playful, not explicit)
-2. symbol: Create a matching ticker symbol (like DOGE, PEPE, SHIB)
-3. description: Short, engaging description
-4. category: ONE of VIBE/LOOK/LIFESTYLE
-5. theme: Specify an animal/character for the logo (e.g., "shiba inu dog", "pepe frog")
-
-Example for "I want to meet gym enthusiasts":
-{{
-    "name": "GymApe",
-    "symbol": "GAPE",
-    "description": "Connecting fitness fanatics who lift together and grow together",
-    "category": "LIFESTYLE",
-    "theme": "strong gorilla in gym attire"
+    "name": "<memecoin-style name like DOGE or PEPE>",
+    "symbol": "<4-5 letter ticker>",
+    "description": "<engaging description under 20 words>",
+    "category": "<exactly one of: VIBE, LOOK, LIFESTYLE>",
+    "theme": "<single word describing the logo theme>",
+    "truth_index": <number between 1-100>,
+    "frequency": <number between 1-100>"
 }}"""
     
     try:
-        logger.info(f"Analyzing prompt: {prompt}")
         response = await generate_text_response(analysis_prompt)
-        cleaned_response = clean_json_response(response)
+        if not response:
+            return None
+            
+        details = parse_json_response(response)
+        if not details:
+            return None
+            
+        # Validate specific fields
+        if not isinstance(details.get("truth_index"), (int, float)):
+            details["truth_index"] = 50
+            
+        if details.get("frequency") not in ["rarely", "sometimes", "often"]:
+            details["frequency"] = "50"  # Default if invalid
+            
+        if details.get("category") not in ["VIBE", "LOOK", "LIFESTYLE"]:
+            details["category"] = "VIBE"  # Default if invalid
         
-        try:
-            import json
-            details = json.loads(cleaned_response)
-            validate_agent_details(details)
-            
-            agent_details = AgentDetails(
-                name=details["name"],
-                symbol=details["symbol"],
-                description=details["description"],
-                category=details["category"],
-                user_prompt=prompt,
-                creation_state=AgentCreationState.AWAITING_CONFIRMATION
-            )
-            
-            # Generate memecoin-style logo
-            image_url = await generate_agent_image(agent_details, details["theme"])
-            if image_url:
-                agent_details.image_url = image_url
-            
-            return agent_details
-            
-        except Exception as e:
-            logger.error(f"Error parsing agent details: {str(e)}")
-            raise ValueError("Could not create agent from response")
+        question = details.get("question", f"What makes you a perfect match for {details['name']}?")
+        
+        agent_details = AgentDetails(
+            name=details["name"],
+            symbol=details["symbol"],
+            description=details["description"],
+            category=details["category"],
+            question=question,
+            truth_index=int(details["truth_index"]),
+            interaction_frequency=int(details["frequency"]),
+            creation_state=AgentCreationState.COMPLETED
+        )
+        
+        # Generate logo
+        image_url = await generate_agent_image(agent_details, details["theme"])
+        if image_url:
+            agent_details.image_url = image_url
+        
+        return agent_details
             
     except Exception as e:
         logger.error(f"Error in agent creation: {str(e)}")
-        raise HTTPException(status_code=500, detail="Could not create agent. Please try again.")
+        return None
 
-async def generate_agent_image(agent_details: AgentDetails, theme: str) -> Optional[str]:
+async def generate_agent_image(agent_details: AgentDetails, theme: str) -> str | None:
     """Generate a memecoin-style logo for the agent"""
+    prompt = f"""Create a memecoin-style logo featuring a {theme}.
+    Style: Modern crypto/memecoin logo design
+    Must include:
+    - Cute/fun {theme} as main element
+    - Clean, minimal design
+    - Vibrant colors
+    - Circular coin/token style
+    - NO text or symbols"""
+    
     try:
-        base_prompt = f"""Create a memecoin-style logo featuring a {theme}.
-        Style: Modern crypto/memecoin logo design
-        Must include:
-        - Cute/fun {theme} as main element
-        - Clean, minimal design
-        - Vibrant colors
-        - Circular coin/token style
-        - NO text or symbols
-        Make it: Professional but playful, like popular memecoins
-        Colors: Rich, eye-catching palette
-        Mood: Fun, engaging, memorable
-        Context: {agent_details.description}"""
-        
-        logger.info(f"Generating image with prompt: {base_prompt}")
-        image_response = await generate_image(base_prompt)
-        
-        if not image_response or "images" not in image_response:
-            logger.error("Invalid image response")
-            return None
-            
-        image_url = image_response.get("images", [{}])[0].get("image")
-        return image_url
-        
+        image_response = await generate_image(prompt)
+        return image_response.get("images", [{}])[0].get("image") if image_response else None
     except Exception as e:
         logger.error(f"Error generating image: {str(e)}")
         return None
 
-async def handle_confirmation(message: ChatMessage) -> ChatResponse:
-    """Generate dynamic confirmation messages based on context"""
-    confirmation_prompt = f"""Generate a confirmation message for this AI agent:
-    Name: {message.agent_details.name}
-    Symbol: {message.agent_details.symbol}
-    Description: {message.agent_details.description}
-    
-    Requirements:
-    1. Keep it brief and clear
-    2. Ask for simple yes/no confirmation
-    3. No small talk or unnecessary text"""
-    
-    confirmation_text = await generate_text_response(confirmation_prompt)
-    return ChatResponse(
-        text=confirmation_text,
-        image_encoding=message.agent_details.image_url,
-        message_type=MessageType.AGENT_CONFIRMATION,
-        agent_details=message.agent_details
-    )
+async def generate_agent_question(agent_details: AgentDetails) -> str:
+    """Generate a themed question based on agent characteristics"""
+    question_prompt = f"""Create a fun, engaging question for a memecoin-style AI matching agent with these details:
+    Name: {agent_details.name}
+    Description: {agent_details.description}
+    Category: {agent_details.category}
+    Question: {agent_details.question}
 
-async def handle_creation_flow(message: ChatMessage) -> ChatResponse:
-    """Handle the agent creation flow based on state"""
+    Examples of good questions:
+    SOLMATE -> "When SOL hits 420$, what's your move?"
+    FRIENDZONE -> "Getting close but not getting past friendship?"
+    UFO -> "alien encounter story _____"
+    SOLOTRAVEL -> "where are you going next? What is your plan?"
+    BONKMATE -> "what's your bonk worthy about you that others can't resist?"
+
+    Create a NEW unique question that matches this agent's theme and personality.
+    Respond with ONLY the question, no explanations."""
+
     try:
-        state = message.agent_details.creation_state if message.agent_details else AgentCreationState.AWAITING_PROMPT
-        content_lower = message.content.lower()
-
-        # Handle initial prompt
-        if state == AgentCreationState.AWAITING_PROMPT:
-            agent_details = await analyze_user_prompt(message.content)
-            return await handle_confirmation(ChatMessage(
-                content=message.content,
-                message_type=MessageType.AGENT_CONFIRMATION,
-                agent_details=agent_details
-            ))
-
-        # Handle truth index setting
-        if state == AgentCreationState.SETTING_TRUTH_INDEX:
-            try:
-                truth_index = int(content_lower)
-                if 1 <= truth_index <= 100:
-                    message.agent_details.truth_index = truth_index
-                    message.agent_details.creation_state = AgentCreationState.SETTING_FREQUENCY
-                    
-                    frequency_prompt = """Generate a brief message asking for interaction frequency:
-                    - Options: rarely, sometimes, often
-                    - Keep it simple and clear
-                    - One line question"""
-                    
-                    response_text = await generate_text_response(frequency_prompt)
-                    return ChatResponse(
-                        text=response_text,
-                        message_type=MessageType.AGENT_FREQUENCY_UPDATE,
-                        agent_details=message.agent_details
-                    )
-            except ValueError:
-                error_prompt = "Generate a message asking for a valid number between 1-100"
-                error_text = await generate_text_response(error_prompt)
-                return ChatResponse(
-                    text=error_text,
-                    message_type=MessageType.AGENT_TRUTH_INDEX_UPDATE,
-                    agent_details=message.agent_details
-                )
-
-        # Handle frequency setting
-        if state == AgentCreationState.SETTING_FREQUENCY:
-            valid_responses = {
-                "1": "rarely", "rarely": "rarely",
-                "2": "sometimes", "sometimes": "sometimes",
-                "3": "often", "often": "often"
-            }
-            
-            if content_lower in valid_responses:
-                message.agent_details.interaction_frequency = valid_responses[content_lower]
-                message.agent_details.creation_state = AgentCreationState.COMPLETED
-                
-                completion_prompt = f"""Generate a completion message for the AI agent:
-                Name: {message.agent_details.name}
-                Symbol: {message.agent_details.symbol}
-                Description: {message.agent_details.description}
-                
-                Requirements:
-                1. Confirm successful creation
-                2. Keep it brief and professional
-                3. No additional questions or options"""
-                
-                completion_text = await generate_text_response(completion_prompt)
-                return ChatResponse(
-                    text=completion_text,
-                    message_type=MessageType.AGENT_COMPLETE,
-                    agent_details=message.agent_details
-                )
-
-        # Handle confirmation responses
-        if state == AgentCreationState.AWAITING_CONFIRMATION:
-            if content_lower in ['yes', 'y', 'sure', 'ok', 'okay']:
-                message.agent_details.creation_state = AgentCreationState.SETTING_TRUTH_INDEX
-                truth_prompt = "Generate a message asking for Truth Index (1-100)"
-                truth_text = await generate_text_response(truth_prompt)
-                return ChatResponse(
-                    text=truth_text,
-                    message_type=MessageType.AGENT_TRUTH_INDEX_UPDATE,
-                    agent_details=message.agent_details
-                )
-            elif content_lower in ['no', 'n', 'nope']:
-                return ChatResponse(
-                    text="Let me create a different agent. Please describe what you're looking for again.",
-                    message_type=MessageType.TEXT,
-                    agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
-                )
-
-        # Generate contextual response for other states
-        context_prompt = f"""Generate a focused response for AI agent creation.
-        Current state: {state}
-        User message: {message.content}
-        
-        Requirements:
-        1. Stay strictly within agent creation context
-        2. Clear, actionable response
-        3. Move conversation forward
-        4. No small talk or chitchat"""
-        
-        response_text = await generate_text_response(context_prompt)
-        return ChatResponse(
-            text=response_text,
-            message_type=MessageType.TEXT,
-            agent_details=message.agent_details
-        )
-
+        question = await generate_text_response(question_prompt)
+        return question.strip().strip('"').strip("'")
     except Exception as e:
-        logger.error(f"Error in creation flow: {str(e)}")
-        return ChatResponse(
-            text="Something went wrong. Please describe what kind of agent you'd like to create.",
-            message_type=MessageType.TEXT,
-            agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
-        )
+        logger.error(f"Error generating question: {str(e)}")
+        return f"What makes you a perfect match for {agent_details.name}?"
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(message: ChatMessage) -> ChatResponse:
     """Process chat messages and return responses"""
     try:
         content_lower = message.content.lower()
-        logger.debug(f"Received message: {message.dict()}")
 
-        # Check if starting new conversation
+        # Handle initial greeting
         if content_lower in ["hi", "hello", "start", "hey", "new", "begin"]:
-            start_prompt = """Generate a welcoming message asking user to describe their ideal match.
-            Requirements:
-            1. Brief and focused on agent creation
-            2. Ask for match preferences
-            3. No examples or additional options"""
-            
-            welcome_text = await generate_text_response(start_prompt)
             return ChatResponse(
-                text=welcome_text,
+                text="Hello! Please describe what kind of people you'd like to meet.",
                 message_type=MessageType.TEXT,
-                agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
+                agent_details=None
             )
 
-        # Handle existing conversation flow
-        return await handle_creation_flow(message)
+        # Create agent from user prompt
+        agent_details = await analyze_user_prompt(message.content)
+        
+        if not agent_details:
+            return ChatResponse(
+                text="I couldn't create an agent right now. Please try describing the people you'd like to meet in a different way.",
+                message_type=MessageType.TEXT,
+                agent_details=None
+            )
+
+        # Generate themed question
+        agent_question = await generate_agent_question(agent_details)
+        agent_details.question = agent_question
+        
+        response_text = f"""I've created your perfect AI matching agent!
+
+{agent_details.name} ({agent_details.symbol})
+{agent_details.description}
+
+Category: {agent_details.category}
+Truth Index: {agent_details.truth_index}
+Interaction Style: {agent_details.interaction_frequency}
+"""
+
+        return ChatResponse(
+            text=response_text,
+            image_encoding=agent_details.image_url,
+            message_type=MessageType.AGENT_COMPLETE,
+            agent_details=agent_details
+        )
 
     except Exception as e:
         logger.error(f"Error in chat endpoint: {str(e)}")
-        error_prompt = "Generate an error message asking user to try again"
-        error_text = await generate_text_response(error_prompt)
         return ChatResponse(
-            text=error_text,
+            text="Something went wrong. Please try again with a different description.",
             message_type=MessageType.TEXT,
-            agent_details=AgentDetails(creation_state=AgentCreationState.AWAITING_PROMPT)
+            agent_details=None
         )
 
-def clean_json_response(response: str) -> str:
-    """Clean and extract JSON from response"""
-    cleaned = response.strip()
-    if "```" in cleaned:
-        parts = cleaned.split("```")
-        for part in parts:
-            if "{" in part and "}" in part:
-                cleaned = part.strip()
-                break
-    if cleaned.startswith(("json", "JSON")):
-        cleaned = cleaned[4:].strip()
-    return cleaned
-
-def validate_agent_details(details: dict) -> None:
-    """Validate required fields and formats"""
-    required_fields = ['name', 'symbol', 'description', 'category', 'theme']
-    if not all(field in details for field in required_fields):
-        missing = [f for f in required_fields if f not in details]
-        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+def parse_json_response(response: str) -> dict:
+    """Clean and parse JSON response"""
+    import json
+    import re
     
-    if details["category"] not in ["VIBE", "LOOK", "LIFESTYLE"]:
-        raise ValueError("Invalid category")
-    
-    if len(details["description"]) > 200:
-        raise ValueError("Description too long")
+    try:
+        # Clean the response
+        cleaned = response.strip()
+        
+        # Extract JSON object if wrapped in code blocks
+        if "```" in cleaned:
+            match = re.search(r'```(?:json)?(.*?)```', cleaned, re.DOTALL)
+            if match:
+                cleaned = match.group(1).strip()
+        
+        # Remove any "json" or "JSON" prefix
+        cleaned = re.sub(r'^(?:json|JSON)\s*', '', cleaned)
+        
+        # Parse JSON
+        details = json.loads(cleaned)
+        
+        # Check required fields with default values
+        defaults = {
+            "name": "AGENT",
+            "symbol": "AGNT",
+            "description": "A friendly matching agent",
+            "category": "VIBE",
+            "theme": "robot",
+            "truth_index": 50,
+            "frequency": "sometimes"
+        }
+        
+        # Fill in any missing fields with defaults
+        for field, default in defaults.items():
+            if field not in details or not details[field]:
+                details[field] = default
+                logger.warning(f"Missing field '{field}' in response, using default: {default}")
+        
+        return details
+        
+    except Exception as e:
+        logger.error(f"Error parsing JSON response: {str(e)}")
+        return defaults
