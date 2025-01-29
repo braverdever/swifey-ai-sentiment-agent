@@ -35,6 +35,7 @@ class CreateAICoachReq(BaseModel):
     profile_image: str
     prompt: str
     truth_index: int
+    category: str
     interaction_freq: int
     wallet_addr: str
     token_mint: str
