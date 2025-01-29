@@ -59,7 +59,6 @@ class AgentDetails(BaseModel):
         }
         
     def dict(self, *args, **kwargs):
-        # Ensure all fields are JSON serializable
         d = super().dict(*args, **kwargs)
         d['creation_state'] = self.creation_state.value
         return d
@@ -70,10 +69,16 @@ class ChatMessage(BaseModel):
     agent_details: Optional[AgentDetails] = None
 
 class ChatResponse(BaseModel):
-    text: str
+    text: Optional[str] = None
+    name: Optional[str] = None
+    symbol: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    question: Optional[str] = None
+    truth_index: Optional[int] = None
+    interaction_frequency: Optional[int] = None
     image_encoding: Optional[str] = None
     message_type: MessageType
-    agent_details: Optional[AgentDetails] = None
 
 async def generate_text_response(content: str, context: Optional[Dict] = None) -> str:
     """Generate contextual response using AI"""

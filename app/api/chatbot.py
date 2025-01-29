@@ -11,10 +11,46 @@ logger = logging.getLogger(__name__)
 
 async def analyze_user_prompt(prompt: str) -> AgentDetails:
     """Analyze user prompt to create agent details including AI-decided parameters"""
-    analysis_prompt = f"""Analyze this description of desired connections and create a memecoin-style AI matching agent.
-User description: "{prompt}"
+    analysis_prompt = f"""You are a creative AI matchmaking expert specializing in creating unique memecoin-style matching agents.
 
-You must respond with ONLY a JSON object in this exact format:
+Given this user's description of desired connections: "{prompt}"
+
+Create a completely unique, never-before-seen memecoin agent that captures the essence of their matching preferences.
+
+Rules for creation:
+1. Name: Create a clever, memorable name that:
+   - Uses wordplay, puns, or creative combinations
+   - Relates to dating/connections/relationships
+   - Follows memecoin style (like DOGE, PEPE, but NEVER copy existing names)
+   - Must be COMPLETELY UNIQUE each time
+
+2. Symbol: Create a 4-5 letter ticker that:
+   - Is catchy and memorable
+   - Relates to the name
+   - Uses creative abbreviations
+   - Must be DIFFERENT each time
+
+3. Description: Write an engaging, witty description that:
+   - Captures the essence of the desired connections
+   - Uses humor or clever wordplay
+   - Stays under 20 words
+   - Must be FRESH and UNIQUE each time
+
+4. Category must be exactly one of:
+   VIBE (personality/energy matching)
+   LOOK (appearance/attraction matching)
+   LIFESTYLE (habits/interests matching)
+
+5. Theme: Choose ONE word that best represents the visual theme for the logo
+   - Must be concrete, visualizable object/animal/symbol
+   - Should relate to the agent's purpose
+   - Must be DIFFERENT for each agent
+
+6. Numbers:
+   truth_index: 1-100 (how honest/direct the agent is) make sure it is random, so keep into consideration the user's prompt
+   frequency: 1-100 (how often the agent appears) make sure it is random, so keep into consideration the user's prompt
+
+Respond with ONLY a JSON object in this exact format:
 {{
     "name": "<memecoin-style name like DOGE or PEPE>",
     "symbol": "<4-5 letter ticker>",
@@ -23,7 +59,9 @@ You must respond with ONLY a JSON object in this exact format:
     "theme": "<single word describing the logo theme>",
     "truth_index": <number between 1-100>,
     "frequency": <number between 1-100>"
-}}"""
+}}
+
+IMPORTANT: Each response must be COMPLETELY UNIQUE - never repeat previous names, symbols, or descriptions."""
     
     try:
         response = await generate_text_response(analysis_prompt)
@@ -38,7 +76,7 @@ You must respond with ONLY a JSON object in this exact format:
         if not isinstance(details.get("truth_index"), (int, float)):
             details["truth_index"] = 50
             
-        if details.get("frequency") not in ["rarely", "sometimes", "often"]:
+        if not isinstance(details.get("frequency"), (int, float)):
             details["frequency"] = "50"  # Default if invalid
             
         if details.get("category") not in ["VIBE", "LOOK", "LIFESTYLE"]:
@@ -120,7 +158,7 @@ async def chat(message: ChatMessage) -> ChatResponse:
         # Handle initial greeting
         if content_lower in ["hi", "hello", "start", "hey", "new", "begin"]:
             return ChatResponse(
-                text="Hello! Please describe what kind of people you'd like to meet.",
+                text="Let us create an AI agent to find you meaningful matches. Who would like to connect with?",
                 message_type=MessageType.TEXT,
                 agent_details=None
             )
@@ -139,30 +177,22 @@ async def chat(message: ChatMessage) -> ChatResponse:
         agent_question = await generate_agent_question(agent_details)
         agent_details.question = agent_question
         
-        response_text = f"""I've created your perfect AI matching agent!
-
-{agent_details.name} ({agent_details.symbol})
-{agent_details.description}
-
-Category: {agent_details.category}
-Truth Index: {agent_details.truth_index}
-Interaction Style: {agent_details.interaction_frequency}
-"""
+        response_text = agent_details
 
         return ChatResponse(
-            text=response_text,
+            name=agent_details.name,
+            symbol=agent_details.symbol,
+            description=agent_details.description,
+            category=agent_details.category,
+            question=agent_details.question,
+            truth_index=agent_details.truth_index,
+            interaction_frequency=agent_details.interaction_frequency,
             image_encoding=agent_details.image_url,
             message_type=MessageType.AGENT_COMPLETE,
-            agent_details=agent_details
         )
 
     except Exception as e:
         logger.error(f"Error in chat endpoint: {str(e)}")
-        return ChatResponse(
-            text="Something went wrong. Please try again with a different description.",
-            message_type=MessageType.TEXT,
-            agent_details=None
-        )
 
 def parse_json_response(response: str) -> dict:
     """Clean and parse JSON response"""
