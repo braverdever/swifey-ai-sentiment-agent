@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, Path
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import httpx
@@ -8,6 +8,9 @@ from datetime import datetime
 from ..utils.helpers import generate_cache_key
 import redis
 from ..config.settings import REDIS_HOST, REDIS_PORT
+from ..auth.middleware import verify_app_token
+from fastapi import Depends
+from ..db.supabase import get_supabase
 
 router = APIRouter()
 
@@ -65,8 +68,15 @@ class OHLCVResponse(BaseModel):
     message: str
     data: Optional[List[OHLCVData]] = None
 
+# Add this class for the request body
+class TokenVanityUseRequest(BaseModel):
+    public_key: str
+
 @router.get("/price", response_model=TokenPriceResponse)
-async def get_token_prices(tokens: str):
+async def get_token_prices(
+    tokens: str,
+    profile_id: str = Depends(verify_app_token)
+):
     """
     Get prices for multiple tokens using the Astralane GraphQL API.
     Includes 1-minute Redis caching.
@@ -75,8 +85,8 @@ async def get_token_prices(tokens: str):
         # Try to get from cache first
         cache_key = generate_cache_key("token_prices", tokens)
         cached_data = redis_client.get(cache_key)
-        
-        if cached_data:
+        print('cached_data', cached_data)
+        if cached_data is not None:
             return {
                 "success": True,
                 "message": "Token prices fetched from cache",
@@ -84,33 +94,29 @@ async def get_token_prices(tokens: str):
             }
 
         # GraphQL query for token prices
-        query = """
-        query GetTokenPrices($tokens: [String!]!) {
-            tokens(addresses: $tokens) {
-                address
-                price
-                priceChange24h
-                volume24h
-            }
-        }
-        """
+        # query = """
+        # query GetTokenPrices($tokens: [String!]!) {
+        #     tokens(addresses: $tokens) {
+        #         address
+        #         price
+        #         priceChange24h
+        #         volume24h
+        #     }
+        # }
+        # """
         
-        variables = {
-            "tokens": tokens.split(",")
-        }
+        # variables = {
+        #     "tokens": tokens.split(",")
+        # }
 
         # If not in cache, fetch from API
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://graphql.astralane.io",
+            response = await client.get(
+                f"https://graphql.astralane.io/api/v1/price-by-token?tokens={tokens}",
                 headers=API_HEADERS,
-                json={
-                    "query": query,
-                    "variables": variables
-                },
                 timeout=10.0
             )
-            
+            print('response', response)
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
@@ -118,7 +124,9 @@ async def get_token_prices(tokens: str):
                 )
             
             data = response.json()
+            print('data', data)
             token_data = data.get("data", {}).get("tokens", {})
+            print('token_data', data)
             
             # Cache the result
             if token_data:
@@ -145,12 +153,13 @@ async def get_token_prices(tokens: str):
             detail=f"Failed to fetch token prices: {str(e)}"
         )
 
-@router.get("/ohlcv/{pool_address}", response_model=OHLCVResponse)
+@router.get("/ohlcv", response_model=OHLCVResponse)
 async def get_token_ohlcv(
     pool_address: str,
     interval: str = "1m",  # Default to 1 minute
     from_time: Optional[int] = None,
-    to_time: Optional[int] = None
+    to_time: Optional[int] = None,
+    profile_id: str = Depends(verify_app_token)
 ):
     """
     Get OHLCV (Open, High, Low, Close, Volume) data for a token pool.
@@ -229,3 +238,35 @@ async def get_token_ohlcv(
             status_code=500,
             detail=f"Failed to fetch OHLCV data: {str(e)}"
         ) 
+    
+@router.get("/token_vanity")
+async def get_token_vanity(
+    profile_id: str = Depends(verify_app_token)
+):
+    """
+    Get the first unused token contract's public key from the database
+    """
+    supabase = get_supabase()
+    response = supabase.table('token_contracts') \
+        .select('public_key,used') \
+        .eq('used', False) \
+        .limit(1) \
+        .execute()
+    
+    return response.data[0] if response.data else None
+
+@router.post("/token_vanity/use")
+async def use_token_vanity(
+    request: TokenVanityUseRequest,
+    profile_id: str = Depends(verify_app_token)
+):
+    """
+    Mark a token contract as used
+    """
+    supabase = get_supabase()
+    response = supabase.table('token_contracts') \
+        .update({'used': True}) \
+        .eq('public_key', request.public_key) \
+        .execute()
+    return {"success": True, "message": "Token contract marked as used"}
+
