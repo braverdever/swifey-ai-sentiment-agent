@@ -11,7 +11,7 @@ from ..config.settings import REDIS_HOST, REDIS_PORT
 from ..auth.middleware import verify_app_token
 from fastapi import Depends
 from ..db.supabase import get_supabase
-from ...config.settings import  REDIS_URL, REDIS_CACHE_TTL
+from ..config.settings import  REDIS_URL
 
 router = APIRouter()
 
