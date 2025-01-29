@@ -11,13 +11,13 @@ from ..config.settings import REDIS_HOST, REDIS_PORT
 from ..auth.middleware import verify_app_token
 from fastapi import Depends
 from ..db.supabase import get_supabase
+from ...config.settings import  REDIS_URL, REDIS_CACHE_TTL
 
 router = APIRouter()
 
 # Initialize Redis client
-redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
+redis_client = redis.from_url(
+    url=REDIS_URL,
     decode_responses=True
 )
 
