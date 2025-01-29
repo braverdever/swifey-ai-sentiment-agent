@@ -28,6 +28,18 @@ class AiCoach(BaseModel):
 class AiCoachesData(BaseModel):
     coaches: List[AiCoach]
 
+# req body: name, symbol, profile_image, prompt, truth_index, interaction_freq, wallet_addr, token_mint
+class CreateAICoachReq(BaseModel):
+    name: str
+    symbol: str
+    profile_image: str
+    prompt: str
+    truth_index: int
+    interaction_freq: int
+    wallet_addr: str
+    token_mint: str
+
+
 def get_category_from_truth_index(truth_index: int) -> str:
     if truth_index >= 81 and truth_index <= 100:
         return 'Unfiltered truth teller'
@@ -88,6 +100,29 @@ async def get_ai_coach(
             status_code=500,
             detail="Failed to fetch AI coaches"
         )
+
+
+# new endpoint to add ai coache
+# req body: name, symbol, profile_image, prompt, truth_index, interaction_freq, wallet_addr, token_mint
+@router.post("/new")
+async def create_ai_coach(
+        request: CreateAICoachReq,
+        user_id: str = Depends(verify_app_token)
+):
+    """
+    Creates a new agent
+    """
+    try:
+        print(user_id)
+        supabase = get_supabase()
+        response = supabase.table('ai_agents').insert(request.dict()).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to add AI coach"
+        )
+
 
 @router.get("/cached")
 async def get_ai_coach_cached():

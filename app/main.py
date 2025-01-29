@@ -179,6 +179,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/",
         "/fetch-configuration",
         "/api/v1/ai-coach/cached",
+        "/api/v1/ai-coach/new",
         "/api/v1/auth/verify",
         "/api/v1/profile/update",
         "/api/v1/token/price",
