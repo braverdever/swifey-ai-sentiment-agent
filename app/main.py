@@ -20,6 +20,7 @@ from .api.token_price import router as token_price_router
 from .core.events import create_start_app_handler, create_stop_app_handler
 from .auth.middleware import auth_middleware
 from .api.ai_coach import router as ai_coach_router
+from .api.chatbot import router as chatbot_router
 
 def get_application() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -29,6 +30,14 @@ def get_application() -> FastAPI:
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  
+        allow_credentials=True,
+        allow_methods=["*"],  
+        allow_headers=["*"],  
     )
 
     # Event handlers
@@ -57,15 +66,6 @@ def get_application() -> FastAPI:
         notification_router,
         prefix="/api/v1/notifications",
         tags=["notifications"]
-    )
-
-    # CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
 
     # Routers
@@ -113,6 +113,13 @@ def get_application() -> FastAPI:
         prefix="/api/v1/ai-coach",
         tags=["ai-coach"]
     )
+
+    app.include_router(
+        chatbot_router,
+        prefix="/api/v1/chatbot",
+        tags=["chatbot"]
+    )
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request,
@@ -193,6 +200,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/profile/get-signed-urls",
         "/api/v1/embeddings/embed/texts",
         "/api/v1/chat/truth-bomb",
+        "/api/v1/chatbot/chat",
         "/api/v1/embeddings/search-similar-responses",
         "/api/v1/ai-coach/my-coaches",
         "/docs",

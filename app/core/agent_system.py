@@ -49,7 +49,7 @@ class AgentSystem:
         buffer_size: int = 1000
     ):
         try:
-            self.llm = create_llm_adapter(settings.LLM_CONFIG)
+            self.llm = create_llm_adapter(settings.TEXT_LLM_CONFIG)
         except (LLMAuthenticationError, LLMConnectionError) as e:
             logger.warning(f"Failed to initialize LLM adapter: {e}. Will use fallback responses.")
             self.llm = None
