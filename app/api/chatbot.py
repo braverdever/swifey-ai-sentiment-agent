@@ -48,7 +48,8 @@ Rules for creation:
 
 6. Numbers:
    truth_index: 1-100 (how honest/direct the agent is) make sure it is random, so keep into consideration the user's prompt
-   frequency: 1-100 (how often the agent appears) make sure it is random, so keep into consideration the user's prompt
+   frequency: 1-30 (how often the agent should interact with the users chat when he chats with someone else) make sure it is random, so keep into consideration the user's prompt
+   make sure the frequency is not too high, so the user doesn't get annoyed, as this should interact with the user when he chats with someone else, and it should be a fun interaction, make sure its ranging from 1-30
 
 Respond with ONLY a JSON object in this exact format:
 {{
@@ -58,7 +59,7 @@ Respond with ONLY a JSON object in this exact format:
     "category": "<exactly one of: VIBE, LOOK, LIFESTYLE>",
     "theme": "<single word describing the logo theme>",
     "truth_index": <number between 1-100>,
-    "frequency": <number between 1-100>"
+    "frequency": <number between 1-30>"
 }}
 
 IMPORTANT: Each response must be COMPLETELY UNIQUE - never repeat previous names, symbols, or descriptions."""

@@ -140,7 +140,7 @@ async def get_new_users(
             .eq("verification_status", "approved") \
             .neq("id", user_id) \
             .order("created_at", desc=True) \
-            .limit(5) \
+            .limit(4) \
             .execute()
         
         return {
