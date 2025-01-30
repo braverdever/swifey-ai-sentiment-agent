@@ -251,7 +251,7 @@ async def chat(message: ChatMessage) -> StreamingResponse:
 
         async def generate_response():
             # Immediate initial response
-            yield f"data: {json.dumps({'text': 'Creating your perfect match...\n', 'message_type': MessageType.TEXT})}\n\n"
+            yield f"data: {json.dumps({'text': 'Creating your perfect match...', 'message_type': MessageType.TEXT})}\n\n"
             await asyncio.sleep(0.2)
             
             # Stream thinking process
@@ -266,7 +266,7 @@ async def chat(message: ChatMessage) -> StreamingResponse:
                 yield f"data: {json.dumps({'text': 'I could not create an agent right now. Please try again with different preferences.', 'message_type': MessageType.TEXT})}\n\n"
                 return
 
-            yield f"data: {json.dumps({'text': ' Fizing your unique agent...\n', 'message_type': MessageType.TEXT})}\n\n"
+            yield f"data: {json.dumps({'text': 'Finalizing your unique agent...', 'message_type': MessageType.TEXT})}\n\n"
             await asyncio.sleep(0.2)
 
             # Generate themed question
