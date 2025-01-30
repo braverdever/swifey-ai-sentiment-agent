@@ -157,7 +157,7 @@ async def generate_truth_bomb_and_send(user_id1: str, user_id2: str, interaction
 def initialise_conversation_count(user_id1: str, user_id2: str):
     hash = get_hash(user_id1, user_id2)
     supabase = get_supabase()
-    result = supabase.rpc("get_initiator_and_agent_info", { 'user_id1': user_id1, 'user_id2': user_id2 }).execute()
+    result = supabase.rpc("get_initiator_and_agent_info_v2", { 'user_id1': user_id1, 'user_id2': user_id2 }).execute()
     if not result.data[0]:
         return
     initiator = result.data[0]['initiator']
