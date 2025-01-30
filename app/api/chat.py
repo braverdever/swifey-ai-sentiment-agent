@@ -276,6 +276,25 @@ async def get_user_chats(user_id: str = Depends(verify_app_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/mark-read")
+async def mark_read( other_user_id: str, user_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        response = supabase.rpc("mark_messages_read_v2", { "sender_id": user_id, "recipient_id": other_user_id }).execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No chats found",
+                "chats": []
+            }
+        return {
+            "success": True,
+            "message": "Chats fetched successfully",
+            "chats": response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/chat_messages", response_model=ChatMessagesResponse)
 async def get_chat_messages(
         other_user_id: str, 
