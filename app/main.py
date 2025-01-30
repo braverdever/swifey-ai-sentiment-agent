@@ -187,6 +187,9 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/token/token_vanity",
         "/api/v1/token/token_vanity/use",
         "/api/v1/profile/we-met",
+        "/api/v1/ai-coach/top",
+        "/api/v1/ai-coach/newest",
+        "/api/v1/ai-coach/most-interactive"
         "/api/v1/profile/verify-invite-code",
         "/api/v1/profile/create-invitation",
         "/api/v1/profile/me",
@@ -261,7 +264,7 @@ def run_main_app() -> None:
         "app.main:app",
         host="0.0.0.0",
         port=80,
-        reload=True  # Enable auto-reload
+        reload=True  
     )
 
 

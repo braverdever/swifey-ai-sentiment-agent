@@ -13,8 +13,8 @@ async def startup_event():
 class SearchSimilarRequest(BaseModel):
     response: str = Field(..., description="Response text to search for similarities")
     agent_id: Optional[str] = Field(None, description="ID of the agent")
-    user_id: str = Field(..., description="ID of the user")
-    per_page: int = Field(default=10, ge=1, le=100, description="Number of results per page")
+    user_id: str = Field(None, description="ID of the user")
+    per_page: Optional[int] = Field(default=10, ge=1, le=100, description="Number of results per page")
 
 class TextEmbedRequest(BaseModel):
     texts: List[str]

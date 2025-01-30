@@ -44,6 +44,8 @@ class AgentCreationState(str, Enum):
 class AgentDetails(BaseModel):
     name: str
     symbol: str
+    looks: str
+    lifestyle: str
     description: str
     question: str
     category: str
@@ -73,6 +75,8 @@ class ChatResponse(BaseModel):
     name: Optional[str] = None
     symbol: Optional[str] = None
     description: Optional[str] = None
+    looks: Optional[str] = None
+    lifestyle: Optional[str] = None
     category: Optional[str] = None
     question: Optional[str] = None
     truth_index: Optional[int] = None
@@ -98,7 +102,7 @@ async def generate_text_response(content: str, context: Optional[Dict] = None) -
             "model": "meta-llama/Llama-3.3-70B-Instruct",
             "max_tokens": 512,
             "temperature": 0.1,
-            "top_p": 0.9
+            "top_p": 0.9,
         }
         
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -117,7 +121,7 @@ async def generate_text_response(content: str, context: Optional[Dict] = None) -
             
     except Exception as e:
         logger.error(f"Error generating response: {str(e)}")
-        return ""  # Return empty string instead of raising exception
+        return ""  
 
 async def generate_image(prompt: str) -> dict:
     """Generate themed agent image"""

@@ -6,7 +6,9 @@ from typing import Optional, List
 import json
 import redis 
 from ..config import settings
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 class AiCoach(BaseModel):
@@ -17,6 +19,8 @@ class AiCoach(BaseModel):
     profile_image: str
     prompt: str
     truth_index: Optional[int]
+    looks: Optional[str]
+    lifestyle: Optional[str]
     interaction_freq: Optional[int]
     who_sees_you_prompt: Optional[str]
     who_you_see_prompt: Optional[str]
@@ -33,6 +37,8 @@ class CreateAICoachReq(BaseModel):
     name: str
     symbol: str
     profile_image: str
+    looks: str
+    lifestyle: str
     prompt: str
     truth_index: int
     category: str
@@ -166,6 +172,90 @@ async def get_my_coaches(wallet_addr: str, profile_id: str = Depends(verify_app_
         raise HTTPException(
             status_code=500,
             detail="Failed to fetch AI coaches"
+        )
+
+@router.get("/top", response_model=dict)
+async def get_top_ai_coaches(
+    limit: int = 10,
+    profile_id: str = Depends(verify_app_token)
+):
+    """Get top AI coaches sorted by market cap (price)"""
+    try:
+        supabase = get_supabase()
+        response = supabase.table('ai_agents')\
+            .select('*')\
+            .order('price', desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        data = response.data
+        enriched_data = [add_category_to_agent(agent) for agent in data]
+        
+        return {
+            "data": enriched_data,
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"Error fetching top AI coaches: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch top AI coaches"
+        )
+
+@router.get("/newest", response_model=dict)
+async def get_newest_ai_coaches(
+    limit: int = 10,
+    profile_id: str = Depends(verify_app_token)
+):
+    """Get newest AI coaches sorted by creation date"""
+    try:
+        supabase = get_supabase()
+        response = supabase.table('ai_agents')\
+            .select('*')\
+            .order('created_at', desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        data = response.data
+        enriched_data = [add_category_to_agent(agent) for agent in data]
+        
+        return {
+            "data": enriched_data,
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"Error fetching newest AI coaches: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch newest AI coaches"
+        )
+
+@router.get("/most-interactive", response_model=dict)
+async def get_most_interactive_ai_coaches(
+    limit: int = 10,
+    profile_id: str = Depends(verify_app_token)
+):
+    """Get AI coaches sorted by interaction frequency"""
+    try:
+        supabase = get_supabase()
+        response = supabase.table('ai_agents')\
+            .select('*')\
+            .order('interaction_freq', desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        data = response.data
+        enriched_data = [add_category_to_agent(agent) for agent in data]
+        
+        return {
+            "data": enriched_data,
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"Error fetching most interactive AI coaches: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch most interactive AI coaches"
         )
 
 @router.get("/{coach_id}")
