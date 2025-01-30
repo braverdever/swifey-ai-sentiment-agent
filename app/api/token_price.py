@@ -248,7 +248,7 @@ async def get_token_vanity(
     """
     supabase = get_supabase()
     response = supabase.table('token_contracts') \
-        .select('public_key,used') \
+        .select('*') \
         .eq('used', False) \
         .limit(1) \
         .execute()
