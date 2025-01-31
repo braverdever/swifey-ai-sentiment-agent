@@ -27,11 +27,11 @@ async def auth_middleware(request: Request):
         if scheme.lower() != "bearer":
             raise HTTPException(status_code=401, detail="Invalid authentication scheme")
         
-        # Verify the JWT token with Supabase
-        user = supabase.auth.get_user(token)
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         
-        # Add the user to request state for use in route handlers
-        request.state.user = user
+        # Return the user_id
+        return payload["sub"]
+
         
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid token format")

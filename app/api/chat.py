@@ -30,6 +30,12 @@ class ChatListResponse(BaseModel):
     message: str
     chats: List[ChatPreview]
 
+class UnMatchRequest(BaseModel):
+    other_user_id: str
+
+class UnMatchResponse(BaseModel):
+    success: bool
+
 class Message(BaseModel):
     message_id: str
     sender_id: str
@@ -51,6 +57,12 @@ class ChatMessagesResponse(BaseModel):
     success: bool
     message: str
     messages: List[Message]
+
+class TruthBombResponse(BaseModel):
+    success: bool
+    isActive: bool
+    message: str
+    truth_bomb: Optional[dict]
 
 class AudioClip(BaseModel):
     audio_id: str  # Changed from 'id' to match response
@@ -270,14 +282,42 @@ async def get_user_chats(user_id: str = Depends(verify_app_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/mark-read")
+async def mark_read( other_user_id: str, user_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        response = supabase.rpc("mark_messages_read_v2", { "sender_id": user_id, "recipient_id": other_user_id }).execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No chats found",
+                "chats": []
+            }
+        return {
+            "success": True,
+            "message": "Chats fetched successfully",
+            "chats": response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/chat_messages", response_model=ChatMessagesResponse)
-async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_app_token), before_timestamp: Optional[datetime] = None, page_size: int = 50):
+async def get_chat_messages(
+        other_user_id: str, 
+        user_id: str = Depends(verify_app_token), 
+        before_timestamp: Optional[datetime] = None,
+        page_size: int = 50):
     try: 
         supabase = get_supabase()
+
+        print(before_timestamp)
+        before_timestamp_dt = before_timestamp.isoformat() if before_timestamp else datetime.now().isoformat()
+        print(before_timestamp_dt)
+
         response = supabase.rpc("get_direct_messages", {
             'user1_uuid': other_user_id,
             'user2_uuid': user_id,
-            'before_timestamp': before_timestamp,
+            'before_timestamp': before_timestamp_dt,
             'page_size': page_size
         }).execute()
 
@@ -293,6 +333,52 @@ async def get_chat_messages(other_user_id: str, user_id: str = Depends(verify_ap
             "message": "Chat messages fetched successfully",
             "messages": response.data
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get('/get_truth_bomb', response_model=TruthBombResponse)
+async def get_active_truthbomb(other_user_id: str, user_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        user_ids = sorted([other_user_id, user_id])
+        response = supabase.from_('truth_bombs').select('*').eq('user_id1', sorted(user_ids)[0]).eq('user_id2', sorted(user_ids)[1]).eq('status', True).execute()
+        print(response.data)
+        if response.data:
+            return {
+                "success": True,
+                "message": "Truth bomb found",
+                "isActive": True,
+                "truth_bomb": response.data[0]['id']
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "isActive": True,
+                "truth_bomb": None
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/unmatch", response_model= UnMatchResponse)
+async def unmatch( request: UnMatchRequest, user_id: str = Depends(verify_app_token)):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("unmatch", { "user_id1": user_id, "user_id2": request.other_user_id }).execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "isActive": True,
+                "truth_bomb": None
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "isActive": True,
+                "truth_bomb": None
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

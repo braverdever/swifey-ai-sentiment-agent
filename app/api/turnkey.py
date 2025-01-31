@@ -12,6 +12,10 @@ import os
 import time
 import httpx
 from ..config.settings import TURNKEY_API_PUBLIC_KEY, TURNKEY_API_PRIVATE_KEY, TURNKEY_ORGANIZATION_ID
+from jose import jwt
+from ..config.settings import JWT_SECRET
+from datetime import datetime, timedelta
+from ..db.supabase import get_supabase
 
 router = APIRouter()
 
@@ -22,9 +26,11 @@ class InitOTPResponse(BaseModel):
     success: bool
     message: str
     otp_id: str | None = None
+    sub_org_id: str | None = None
 
 class VerifyOTPRequest(BaseModel):
-    email: EmailStr
+    email: str
+    subOrgId: str
     otp: str
     otp_id: str
     target_public_key: str
@@ -35,6 +41,7 @@ class VerifyOTPResponse(BaseModel):
     user_id: str
     api_key_id: str
     credential_bundle: str
+    token: str
 
 def int_to_bytes(value: int, length: int = 32) -> bytes:
     """Convert integer to bytes with fixed length."""
@@ -203,12 +210,76 @@ async def get_sub_org_id(email: str) -> str:
         organization_ids = response_data.get("organizationIds", [])
         
         if not organization_ids:
-            raise HTTPException(
-                status_code=404,
-                detail="No sub-organization found for this email"
-            )
+            # create a new sub org
+            organization_id = await create_sub_org(email)
+            return organization_id
         
         return organization_ids[0]
+
+async def create_sub_org(email: str) -> str:
+    """Create a new sub-organization for a given email."""
+    timpestamp = str(int(time.time() * 1000))
+    request_body = {
+        "type": "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V7",
+        "timestampMs": timpestamp,
+        "organizationId": TURNKEY_ORGANIZATION_ID,
+        "parameters": {
+          "subOrganizationName": email,
+          "rootUsers": [
+            {
+              "userName": email,
+              "userEmail": email,
+              "apiKeys": [],
+              "authenticators": [],
+              "oauthProviders": []
+            }
+          ],
+          "rootQuorumThreshold": 1,
+          "wallet": {
+            "walletName": email,
+            "accounts": [
+              {
+                "pathFormat": "PATH_FORMAT_BIP32",
+                "path": "m/44'/501'/0'/0'",
+                "curve": "CURVE_ED25519",
+                "addressFormat": "ADDRESS_FORMAT_SOLANA",
+              }
+            ]
+          }
+        }
+      }
+
+    json_body = json.dumps(request_body)
+    stamp = await generate_api_key_stamp(json_body, TURNKEY_API_PRIVATE_KEY, TURNKEY_API_PUBLIC_KEY)
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.turnkey.com/public/v1/submit/create_sub_organization",
+            content=json_body,
+            headers={
+                "X-Stamp": stamp,
+                "Content-Type": "application/json"
+            }
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to create sub org: {response.text}"
+            )
+        
+        response_data = response.json()
+        '''
+          return createSubOrgResponse['activity']['result']
+      ['createSubOrganizationResultV7']['subOrganizationId'] as String;
+        '''
+        organization_id = response_data['activity']['result']['createSubOrganizationResultV7']['subOrganizationId']
+        print("new sub org created and its id", organization_id)
+
+        if not organization_id:
+            raise Exception('Failed to create sub-organization')
+
+        return organization_id
 
 @router.post("/initotp", response_model=InitOTPResponse)
 async def init_otp(request: InitOTPRequest):
@@ -266,7 +337,8 @@ async def init_otp(request: InitOTPRequest):
             return {
                 "success": True,
                 "message": "OTP initialization successful",
-                "otp_id": otp_id
+                "otp_id": otp_id,
+                "sub_org_id": sub_org_id
             }
             
     except Exception as e:
@@ -279,7 +351,12 @@ async def verify_otp(request: VerifyOTPRequest):
     """
     try:
         # First get the sub-organization ID for the email
-        sub_org_id = await get_sub_org_id(request.email)
+        sub_org_id = request.subOrgId
+        print(request.email)
+        print(request.subOrgId)
+        print(request.otp)
+        print(request.otp_id)
+        print(request.target_public_key)
         
         # Prepare request body
         request_body = {
@@ -290,7 +367,8 @@ async def verify_otp(request: VerifyOTPRequest):
                 "otpId": request.otp_id,
                 "otpCode": request.otp,
                 "targetPublicKey": request.target_public_key,
-                "apiKeyName": f"OTP Auth - {time.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                "apiKeyName": f"OTP Auth - {time.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                "expirationSeconds": "2600000" 
             }
         }
         
@@ -312,6 +390,7 @@ async def verify_otp(request: VerifyOTPRequest):
             )
             
             if response.status_code != 200:
+                print(response.text)
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Turnkey API error: {response.text}"
@@ -331,13 +410,32 @@ async def verify_otp(request: VerifyOTPRequest):
                     status_code=500,
                     detail="Failed to get authentication details from response"
                 )
-            
+
+            supabase = get_supabase()
+            user = supabase.table("profiles").select("*").eq("email", request.email).execute().data
+            if not user:
+                user = supabase.table("profiles").insert({"email": request.email}).execute().data
+            print(user)
+            # Create token payload
+            payload = {
+                "sub": user[0]["id"],
+                "iat": datetime.utcnow(),
+            }
+
+            # Sign the token
+            token = jwt.encode(
+                payload,
+                JWT_SECRET,
+                algorithm="HS256"
+            )
+
             return {
                 "success": True,
                 "message": "OTP verification successful",
                 "user_id": user_id,
                 "api_key_id": api_key_id,
-                "credential_bundle": credential_bundle
+                "credential_bundle": credential_bundle,
+                "token": token
             }
             
     except Exception as e:

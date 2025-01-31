@@ -4,10 +4,13 @@ from typing import Optional, List, Dict, Any
 from datetime import date
 from ..auth.middleware import verify_app_token
 from ..db.supabase import get_supabase
+from .utils.cache import get_user_by_id, update_user_cache, invalidate_user_cache
 import uuid
 from fastapi import UploadFile, File
 from typing import List
 import uuid
+import asyncio
+
 
 router = APIRouter()
 
@@ -53,6 +56,7 @@ class UserProfile(BaseModel):
     is_active: Optional[bool] = None
     verification_status: Optional[str] = None
     agent_id: Optional[str] = None
+    profile_reviews: Optional[List[Dict[str, Any]]] = None
 
 class ProfileResponse(BaseModel):
     success: bool
@@ -85,6 +89,60 @@ class SignedUrlResponse(BaseModel):
     message: str
     urls: List[dict]
 
+class ProfileCountResponse(BaseModel):
+    success: bool
+    message: str
+    count: int
+
+class WeMet(BaseModel):
+    user_1: str
+    user_2: str
+    we_met_on_this_day: Optional[str] = None
+
+class InviteCode(BaseModel):
+    code: str
+    profile_id: str
+    status: Optional[str] = "active"
+
+class UserInvitation(BaseModel):
+    invite_code: str
+
+class UserReport(BaseModel):
+    report_reason: str
+    profile_id: str
+
+class VerifyInviteCode(BaseModel):
+    code: str
+
+class CreateInvitation(BaseModel):
+    inviter_code: str
+
+class EmailCheckRequest(BaseModel):
+    email: EmailStr
+
+
+@router.get("/count", response_model=ProfileCountResponse)
+async def get_profile_count():
+    """
+    Get total number of approved profiles in the app.
+    """
+    try:
+        supabase = get_supabase()
+        
+        # Query profiles table for approved profiles
+        response = supabase.from_("profiles").select("id", count="exact").eq("verification_status", "approved").execute()
+
+        count = response.count if response.count is not None else 0
+
+        return {
+            "success": True,
+            "message": "Profile count fetched successfully",
+            "count": count
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.put("/update")
 async def update_user_profile(
     request: UpdateProfileRequest,
@@ -92,7 +150,10 @@ async def update_user_profile(
 ):
     """
     Update user profile details.
-    Requires a valid access token in Authorization header.
+    For name, bio, and photos:
+    - If they were previously null/empty, update directly
+    - If they already had values, create review entries
+    Other fields are updated directly.
     """
     try:
         supabase = get_supabase()
@@ -102,94 +163,131 @@ async def update_user_profile(
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
-            
-        # Update the profile
-        result = supabase.table("profiles").update(
-            update_data
-        ).eq("id", user_id).execute()
-        
-        if not result.data:
+
+        # Get current profile data
+        current_profile = await get_user_by_id(user_id)
+
+        if not current_profile:
             raise HTTPException(status_code=404, detail="Profile not found")
+
+        if current_profile['verification_status'] == 'rejected':
+            update_data['verification_status'] = 'inital_review'
+            result = supabase.table("profiles").update(
+                update_data
+            ).eq("id", user_id).execute()
+            invalidate_user_cache(user_id)
+            await update_user_cache(user_id, result.data[0])
+            updated_profile = result.data[0]
+            reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+            updated_profile["profile_reviews"] = reviews_response.data
+            
+            return {
+                "success": True,
+                "message": "Profile update processed successfully",
+                "profile": updated_profile
+            }
+        
+
+        # Fields that need review after initial setup
+        review_fields = {"name", "bio", "photos"}
+        direct_update_data = {}
+        review_entries = []
+
+        for field, new_value in update_data.items():
+            if field in review_fields:
+                current_value = current_profile.get(field)
+                # If the field is photos, and just the order is changed, update directly
+                if field == "photos" and isinstance(current_value, list) and len(current_value) == len(new_value):
+                    print('values to be updated', new_value)
+                    print('photos length is same, checking order')
+                    print(sorted(current_value))
+                    print(sorted(new_value))
+                    print('checking if order is same', sorted(current_value) == sorted(new_value))
+                    if sorted(current_value) == sorted(new_value):
+                        print('photos just changed the order no need to go to review')
+                        direct_update_data[field] = new_value
+                        continue
+
+                # If current value is None/empty, update directly
+                if current_value is None or current_value == "" or (isinstance(current_value, list) and len(current_value) == 0):
+                    direct_update_data[field] = new_value
+                else:
+                    # Create review entry
+                    review_entries.append({
+                        "id": str(uuid.uuid4()),
+                        "profile_id": user_id,
+                        "attribute": field,
+                        "current_value": str(current_value),
+                        "proposed_value": str(new_value),
+                        "review_status": "pending",
+                        "created_at": "now()",
+                    })
+            else:
+                # Other fields update directly
+                direct_update_data[field] = new_value
+
+        # Perform direct updates if any
+        if direct_update_data:
+            result = supabase.table("profiles").update(
+                direct_update_data
+            ).eq("id", user_id).execute()
+
+            if result.data:
+                # Invalidate the old cache
+                invalidate_user_cache(user_id)
+                # Update cache with new data
+                await update_user_cache(user_id, result.data[0])
+
+        # Create review entries if any
+        if review_entries:
+            supabase.table("profile_reviews").insert(review_entries).execute()
+
+        # Get updated profile with reviews
+        updated_profile = await get_user_by_id(user_id)
+        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+        updated_profile["profile_reviews"] = reviews_response.data
             
         return {
             "success": True,
-            "message": "Profile updated successfully",
-            "profile": result.data[0]
+            "message": "Profile update processed successfully",
+            "profile": updated_profile
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
 
-
-@router.post("/new/photos")
-async def upload_photos(
-    files: List[UploadFile] = File(...),
-    user_id: str = Depends(verify_app_token)
-):
-    """
-    Upload photos to Supabase storage and return their IDs.
-    Requires a valid access token in Authorization header.
-    """
-    try:
-        supabase = get_supabase()
-        uploaded_ids = []
-        
-        for file in files:
-            # Generate unique ID for the file
-            file_id = str(uuid.uuid4())
-            file_path = f"{user_id}/{file_id}"
-            
-            # Read file content
-            content = await file.read()
-            
-            # Upload to Supabase storage
-            result = supabase.storage.from_("photos").upload(
-                file_path,
-                content,
-                {"content-type": file.content_type}
-            )
-            
-            uploaded_ids.append({
-                "id": file_id,
-                "path": file_path
-            })
-            
-        return {
-            "success": True,
-            "message": f"Successfully uploaded {len(uploaded_ids)} photos",
-            "photo_ids": uploaded_ids
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-@router.get("/me", response_model=ProfileResponse)
+@router.get("/me" )
 async def get_my_profile(request: Request, user_id: str = Depends(verify_app_token)):
     """
     Get the current user's profile using their access token.
     """
     try:
-        # Get user profile from Supabase
-        supabase = get_supabase()
-        response = supabase.from_("profiles").select("*").eq("id", user_id).single().execute()
+        # First try to get from cache
+        print("user_id", user_id)
+        profile_data = await get_user_by_id(user_id)
+        print("profile_data", profile_data)
         
-        if not response.data:
+        if not profile_data:
             raise HTTPException(
                 status_code=404,
                 detail="Profile not found"
             )
+
+        # Get reviews separately since they're not cached
+        supabase = get_supabase()
+        reviews_response = supabase.from_("profile_reviews").select("*").eq("profile_id", user_id).execute()
+        
+        # Add reviews data to profile
+        profile_data["profile_reviews"] = reviews_response.data
             
         return {
             "success": True,
             "message": "Profile fetched successfully",
-            "user": response.data
+            "user": profile_data
         }
-        
     except HTTPException as e:
         raise e
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching profile: {str(e)}"
@@ -198,7 +296,7 @@ async def get_my_profile(request: Request, user_id: str = Depends(verify_app_tok
 @router.get("/matched_profiles", response_model=MatchedProfileResponse)
 async def get_matched_profiles(
     user_id: str = Depends(verify_app_token),
-    limit: int = 20,
+    limit: int = 8,
     offset: int = 0
 ):
     try: 
@@ -274,3 +372,269 @@ async def get_signed_urls(
             status_code=500,
             detail=f"Error generating signed URLs: {str(e)}"
         )
+
+@router.get("/get-approved-profiles-count")
+async def get_approved_profiles_count(user_id: str = Depends(verify_app_token)):
+    try:
+        supabase = get_supabase()
+        response = supabase.from_("profiles").select("*").eq("verification_status", "approved").execute()
+        
+        return {
+            "success": True,
+            "count": len(response.data) if response.data is not None else 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/we-met", response_model=dict)
+async def record_we_met(
+    request: WeMet
+):
+    """
+    Record when two users meet in person.
+    request.user_1 is the first user and request.user_2 is the second user.
+    """
+    try:
+        supabase = get_supabase()
+        
+        we_met_data = {
+            "user_1": request.user_1,
+            "user_2": request.user_2,
+            "created_at": "now()"  
+        }
+
+        response = supabase.table("we_met").insert(we_met_data).execute()
+
+        return {
+            "success": True,
+            "message": "Meeting recorded successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error recording meeting: {str(e)}"
+        )
+
+@router.post("/invite-code", response_model=dict)
+async def create_invite_code(
+    request: InviteCode,
+):
+    """
+    Create and store an invite code for a user.
+    The code is automatically generated and associated with the user's profile.
+    """
+    try:
+        supabase = get_supabase()
+        
+        
+        invite_data = {
+            "code": request.code,
+            "profile_id": request.profile_id,
+            "status": "active"
+        }
+
+        response = supabase.table("invite_codes").insert(invite_data).execute()
+
+        return {
+            "success": True,
+            "message": "Invite code created successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating invite code: {str(e)}"
+        )
+
+@router.post("/verify-invite-code", response_model=dict)
+async def verify_invite_code(
+    request: VerifyInviteCode
+):
+    """
+    Verify if an invite code is valid and active.
+    Returns the associated profile_id if valid.
+    """
+    try:
+        supabase = get_supabase()
+        
+        invite_code_response = supabase.table("invite_codes") \
+            .select("profile_id") \
+            .eq("code", request.code) \
+            .eq("status", "active") \
+            .single() \
+            .execute()
+
+        if not invite_code_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Invalid or inactive invite code"
+            )
+
+        return {
+            "success": True,
+            "message": "Valid invite code",
+            "inviter_user_id": invite_code_response.data['profile_id']
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verifying invite code: {str(e)}"
+        )
+
+@router.post("/create-invitation", response_model=dict)
+async def create_invitation(
+    invitation: CreateInvitation,
+    user_id: str = Depends(verify_app_token)
+):
+    """
+    Create a record of a user inviting another user.
+    Stores the invitation details in the user_invitations table if not already present.
+    """
+    try:
+        supabase = get_supabase()
+
+        existing = supabase.table("user_invitations") \
+            .select("*") \
+            .eq("invited_user_id", user_id) \
+            .execute()
+
+        if existing.data:
+            return {
+                "success": True,
+                "message": "User invitation already exists",
+                "data": existing.data[0]
+            }
+        
+        invitation_data = {
+            "inviter_code": invitation.inviter_code,
+            "invited_user_id": user_id,
+            "created_at": "now()",
+            "updated_at": "now()"
+        }
+
+        response = supabase.table("user_invitations").insert(invitation_data).execute()
+
+        return {
+            "success": True,
+            "message": "User invitation created successfully", 
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating invitation: {str(e)}"
+        )
+
+@router.post("/report", response_model=dict)
+async def report_user(
+    report: UserReport,
+    user_id: str = Depends(verify_app_token)
+):
+    """
+    Create a report for a user.
+    The authenticated user (profile_id) reports another user (report_user_id) with a reason.
+    """
+    try:
+        supabase = get_supabase()
+        
+        report_data = {
+            "profile_id": report.profile_id,  
+            "report_user_id": user_id,  
+            "report_reason": report.report_reason,
+            "created_at": "now()"
+        }
+
+        response = supabase.table("reports").insert(report_data).execute()
+
+        return {
+            "success": True,
+            "message": "Report submitted successfully",
+            "data": response.data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error submitting report: {str(e)}"
+        )
+
+@router.post("/invite-codes", response_model=dict)
+async def get_invite_codes(
+    user_id: str = Depends(verify_app_token)
+):
+    """
+    Fetch all invite codes associated with a profile ID.
+    Returns both active and used codes with their status.
+    """
+    try:
+        supabase = get_supabase()
+        
+        if user_id is None or user_id.strip() == "":
+            raise HTTPException(
+                status_code=400,
+                detail="user_id is required"
+            )
+        
+        response = supabase.table("invite_codes") \
+            .select("code, status, created_at") \
+            .eq("profile_id", user_id) \
+            .order("created_at", desc=True) \
+            .execute()
+
+        if not response.data:
+            return {
+                "success": True,
+                "message": "No invite codes found",
+                "data": []
+            }
+
+        return {
+            "success": True,
+            "message": "Invite codes fetched successfully",
+            "data": response.data
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching invite codes: {str(e)}"
+        )
+
+@router.post("/check-email", response_model=dict)
+async def check_email_exists(
+    request: EmailCheckRequest
+):
+    """
+    Check if an email exists in the profiles table.
+    """
+    try:
+        supabase = get_supabase()
+        
+        response = supabase.table("profiles") \
+            .select("id") \
+            .eq("email", request.email) \
+            .execute()
+
+        exists = len(response.data) > 0
+
+        return {
+            "success": True,
+            "exists": exists,
+            "message": "Email already exists" if exists else "Email is available"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking email: {str(e)}"
+        )
+
