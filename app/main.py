@@ -189,7 +189,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/profile/we-met",
         "/api/v1/ai-coach/top",
         "/api/v1/ai-coach/newest",
-        "/api/v1/ai-coach/most-interactive"
+        "/api/v1/ai-coach/most-interactive",
         "/api/v1/profile/verify-invite-code",
         "/api/v1/profile/create-invitation",
         "/api/v1/profile/me",
@@ -219,7 +219,7 @@ async def auth_middleware_handler(request: Request, call_next):
         "/api/v1/embeddings/create_user_ai_data",
         "/api/v1/chat/chat_messages",
         "/api/v1/chat/mark-read",
-        "/api/v1/chat/get_truth_bomb"
+        "/api/v1/chat/get_truth_bomb",
         "/api/v1/chat/get_audio_clips",
         "/api/v1/chat/unmatch",
         "/api/v1/turnkey/verifyotp",
