@@ -9,7 +9,7 @@ from app.models.chat import (
 )
 import httpx
 from app.models.chat import TEXT_LLM_CONFIG
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, Dict
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -58,8 +58,8 @@ Rules for creation:
    - Must be DIFFERENT for each agent
 
 7. Numbers:
-   truth_index: 1-100 (how honest/direct the agent is) make sure it is random, so keep into consideration the user's prompt
-   frequency: 1-30 (how often the agent should interact with the users chat when he chats with someone else) make sure it is random, so keep into consideration the user's prompt
+   truth_index: 1-100 (how honest/direct the agent is) make sure it is random, so keep into consideration the user's prompt, don't keep this 67 everytime, analyze the user's prompt and make it random
+   frequency: 1-30 (how often the agent should interact with the users chat when he chats with someone else) make sure it is random, so keep into consideration the user's prompt, don't keep this 14 everytime, analyze the user's prompt and make it random
    make sure the frequency is not too high, so the user doesn't get annoyed, as this should interact with the user when he chats with someone else, and it should be a fun interaction, make sure its ranging from 1-30
 
 8. Looks: Choose a famous personality/celebrity that best represents the user's appearance
@@ -172,108 +172,35 @@ async def generate_agent_question(agent_details: AgentDetails) -> str:
         logger.error(f"Error generating question: {str(e)}")
         return f"What makes you a perfect match for {agent_details.name}?"
 
-async def generate_thinking_process(prompt: str) -> AsyncGenerator[str, None]:
-    thinking_prompt = f"""You are showing the thought process of creating a memecoin-style AI matching agent.
-Given this user's description: "{prompt}"
-
-Your role: You are an expert AI matchmaker who creates fun, memecoin-themed matching agents. Think out loud as you analyze the user's preferences and design the perfect agent.
-
-Example format for this query : I want to connect with people who own 0.25 BTC
-Okay, the user wants to create an app where users can make AI agents to match with others based on vibe checks, looks, and lifestyle. They need input methods for these agents. Also, they want an example agent card for someone looking to connect with people who own 0.25 BTC. Let me break this down.
-
-Matching mechanics need to be solid here. We'll need wallet verification for the BTC holdings - could use read-only API access to major wallets. But beyond just wealth verification, we should look for shared crypto philosophy. Maybe add questions about preferred trading strategies, DeFi experience, or views on Bitcoin's future.
-
-Now, the example agent card. The user's intent is to connect with people who own 0.25 BTC. So the agent's name should reflect crypto or Bitcoin. Vibe check needs a short question related to crypto values. Looks reference: pick a celebrity known for a tech or futuristic style. Maybe someone like Letitia Wright from Black Panther, she has a sleek, modern look. Lifestyle verification should check ownership of 0.25 BTC. They mentioned using a website digital footprint, so maybe a crypto wallet like Blockchain.com. Need to ensure the user has a verified wallet address with that amount.
-
-Putting it all together into a card format. Name, vibe question, looks celeb, lifestyle verification. Keep it concise for mobile display. Make sure the elements align with the target user's interests in crypto. Need to verify ownership without compromising security, so maybe read-only access to wallet data. That should work.
-
-DO NOT ASK USER ANY QUESTIONS, JUST SHOW WHAT YOU ARE THINKING, the above is just an example don't take it is reference and generate answers, just talk explain the user on how we are creating the agent and what we are doing and make sure its humanly, on how you are analyzing the user's preferences and creating the agent
-"""
-    try:        
-        async with httpx.AsyncClient(timeout=1.0) as client:
-            response = await client.post(
-                "https://api.hyperbolic.xyz/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {TEXT_LLM_CONFIG['api_key']}"
-                },
-                json={
-                    "messages": [{"role": "user", "content": thinking_prompt}],
-                    "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
-                    "max_tokens": 512,
-                    "temperature": 0.7,
-                    "stream": True
-                },
-                timeout=30.0
-            )
+class AgentGenerator:
+    def __init__(self):
+        self.agent_details: Optional[Dict] = None
+        
+    async def analyze_and_generate(self, prompt: str) -> AsyncGenerator[str, None]:
+        """Combined thinking and agent generation process"""
+        try:
             
-            buffer = ""
-            last_yield_time = asyncio.get_event_loop().time()
-            
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    try:
-                        data = json.loads(line[6:])
-                        if "choices" in data and data["choices"]:
-                            content = data["choices"][0].get("delta", {}).get("content", "")
-                            if content:
-                                buffer += content
-                                current_time = asyncio.get_event_loop().time()
-                                
-                                if buffer:
-                                    yield f"data: {json.dumps({'text': buffer, 'message_type': MessageType.TEXT})}\n\n"
-                                    buffer = ""
-                                    last_yield_time = current_time
-                                    await asyncio.sleep(0.1)  
-                    except json.JSONDecodeError:
-                        continue
-            
-            # Send any remaining buffer content
-            if buffer:
-                yield f"data: {json.dumps({'text': buffer, 'message_type': MessageType.TEXT})}\n\n"
-
-    except Exception as e:
-        logger.error(f"Error generating thinking process: {str(e)}")
-        yield f"data: {json.dumps({'text': 'Error analyzing preferences. Please try again.', 'message_type': MessageType.TEXT})}\n\n"
-
-@router.post("/chat")
-async def chat(message: ChatMessage) -> StreamingResponse:
-    """Process chat messages and return streaming responses"""
-    try:
-        content_lower = message.content.lower()
-
-        # Handle initial greeting
-        if content_lower in ["hi", "hello", "start", "hey", "new", "begin"]:
-            return StreamingResponse(
-                content=iter([f"data: {json.dumps({'text': 'Let us create an AI agent to find you meaningful matches. Who would like to connect with?', 'message_type': MessageType.TEXT})}\n\n"]),
-                media_type="text/event-stream"
-            )
-
-        async def generate_response():
-            # Immediate initial response
-            yield f"data: {json.dumps({'text': 'Creating your perfect match...\n', 'message_type': MessageType.TEXT})}\n\n"
-            await asyncio.sleep(0.2)
-            
-            # Stream thinking process
-            async for thinking_message in generate_thinking_process(message.content):
-                yield thinking_message
-                await asyncio.sleep(0.1)  # Small delay for smooth streaming
-
-            # Create agent from user prompt
-            agent_details = await analyze_user_prompt(message.content)
-            
+            agent_details = await analyze_user_prompt(prompt)
             if not agent_details:
-                yield f"data: {json.dumps({'text': 'I could not create an agent right now. Please try again with different preferences.', 'message_type': MessageType.TEXT})}\n\n"
+                yield "data: " + json.dumps({'text': 'Failed to create agent. Please try again.', 'message_type': MessageType.TEXT}) + "\n\n"
                 return
 
-            yield f"data: {json.dumps({'text': ' Fizing your unique agent...\n', 'message_type': MessageType.TEXT})}\n\n"
-            await asyncio.sleep(0.2)
+            # Share thinking process
+            thinking_result = self._generate_thinking_from_details(agent_details)
+            for thought in thinking_result.split('\n'):
+                if thought.strip():
+                    words = thought.strip().split()
+                    for word in words:
+                        yield "data: " + json.dumps({'text': word + ' ', 'message_type': MessageType.TEXT}) + "\n\n"
+                        await asyncio.sleep(0.1)
+                    yield "data: " + json.dumps({'text': '\n', 'message_type': MessageType.TEXT}) + "\n\n"
+                    await asyncio.sleep(0.2)
 
             # Generate themed question
-            agent_question = await generate_agent_question(agent_details)
-            agent_details.question = agent_question
+            question = await generate_agent_question(agent_details)
+            agent_details.question = question
 
-            # Send final response with agent details
+            # Generate final response
             response_dict = {
                 'name': agent_details.name,
                 'symbol': agent_details.symbol,
@@ -288,10 +215,42 @@ async def chat(message: ChatMessage) -> StreamingResponse:
                 'message_type': MessageType.AGENT_COMPLETE
             }
             
-            yield f"data: {json.dumps(response_dict)}\n\n"
+            yield "data: " + json.dumps(response_dict) + "\n\n"
 
+        except Exception as e:
+            logger.error(f"Error in agent generation: {str(e)}")
+            yield "data: " + json.dumps({'text': 'An error occurred. Please try again.', 'message_type': MessageType.TEXT}) + "\n\n"
+
+    def _generate_thinking_from_details(self, agent_details: AgentDetails) -> str:
+        """Generate thinking process based on actual agent details"""
+        return f"""Analyzing the user's preferences and requirements to create a unique matching agent. Let me break this down step by step.
+
+First, looking at the core matching criteria. The user seems to be focused on {agent_details.category.lower()}-based connections. This tells me we need to emphasize {agent_details.description.lower()} in our matching approach.
+
+For the agent's identity, I'm crafting something memorable and aligned with their preferences. {agent_details.name} (ticker: {agent_details.symbol}) feels perfect - it captures the essence while maintaining that fun memecoin vibe.
+
+When it comes to appearance and style references, {agent_details.looks} stands out as an ideal match. Their public persona and style really align with what we're trying to achieve here.
+
+Now, for the personality parameters. I'm setting the truth index to {agent_details.truth_index} - this will ensure the agent maintains authenticity while engaging with matches. The interaction frequency is calibrated to {agent_details.interaction_frequency}, striking a balance between engagement and respect for user space.
+
+For lifestyle compatibility, we're focusing on {agent_details.lifestyle}. This will help ensure meaningful connections based on shared values and daily patterns.
+
+Let me finalize the agent profile with these parameters. The combination should create engaging, relevant matches while maintaining the fun, memecoin-inspired atmosphere the user is looking for."""
+
+@router.post("/chat")
+async def chat(message: ChatMessage) -> StreamingResponse:
+    """Handle chat messages with consistent agent generation"""
+    try:
+        content_lower = message.content.lower()
+        if content_lower in ["hi", "hello", "start", "hey", "new", "begin"]:
+            return StreamingResponse(
+                content=iter([f"data: {json.dumps({'text': 'Let us create an AI agent to find you meaningful matches. Who would you like to connect with?', 'message_type': MessageType.TEXT})}\n\n"]),
+                media_type="text/event-stream"
+            )
+
+        generator = AgentGenerator()
         return StreamingResponse(
-            content=generate_response(),
+            content=generator.analyze_and_generate(message.content),
             media_type="text/event-stream"
         )
 
