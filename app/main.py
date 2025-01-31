@@ -22,6 +22,7 @@ from .auth.middleware import auth_middleware
 from .api.ai_coach import router as ai_coach_router
 from .api.chatbot import router as chatbot_router
 
+
 def get_application() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(

@@ -169,6 +169,7 @@ class OptimizedEmbeddingManager:
                 .in_('gender', preferred_genders) \
                 .eq('verification_status', 'approved') \
                 .execute()
+
             
             if not eligible_profiles.data:
                 return {'results': [], 'meta': {'total_matches': 0}}
@@ -178,6 +179,7 @@ class OptimizedEmbeddingManager:
             
             # Generate embedding for query
             query_embedding = await self.get_embedding(response)
+
             
             # Normalize query embedding using L2 normalization
             query_norm = np.linalg.norm(query_embedding)
@@ -203,6 +205,7 @@ class OptimizedEmbeddingManager:
                 embedding_record = self.embedding_map.get(idx)
                 if not embedding_record:
                     continue
+
                     
                 user_id = embedding_record['user_id']
                 if user_id in seen_user_ids or user_id not in eligible_user_ids:
