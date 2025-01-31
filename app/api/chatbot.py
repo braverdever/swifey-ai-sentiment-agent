@@ -178,25 +178,28 @@ class AgentGenerator:
         
     async def analyze_and_generate(self, prompt: str) -> AsyncGenerator[str, None]:
         """Combined thinking and agent generation process"""
-        try:            
-            agent_details = await analyze_user_prompt(prompt) 
+        try:
+            agent_details = await analyze_user_prompt(prompt)
             if not agent_details:
-                yield f"data: {json.dumps({'text': 'Failed to create agent. Please try again.', 'message_type': MessageType.TEXT})}\n\n"
+                yield f"data: {json.dumps({'text': 'Failed to create agent. Please try again.', 'message_type': MessageType.TEXT})}\\n\\n"
                 return
 
+            # Share thinking process
             thinking_result = self._generate_thinking_from_details(agent_details)
             for thought in thinking_result.split('\n'):
                 if thought.strip():
                     words = thought.strip().split()
                     for word in words:
-                        yield f"data: {json.dumps({'text': word + ' ', 'message_type': MessageType.TEXT})}\n\n"
+                        yield f"data: {json.dumps({'text': word + ' ', 'message_type': MessageType.TEXT})}\\n\\n"
                         await asyncio.sleep(0.1)
-                    yield f"data: {json.dumps({'text': '\n', 'message_type': MessageType.TEXT})}\n\n"
+                    yield f"data: {json.dumps({'text': '\\n', 'message_type': MessageType.TEXT})}\\n\\n"
                     await asyncio.sleep(0.2)
 
-            question = await generate_agent_question(agent_details) 
+            # Generate themed question
+            question = await generate_agent_question(agent_details)
             agent_details.question = question
 
+            # Generate final response
             response_dict = {
                 'name': agent_details.name,
                 'symbol': agent_details.symbol,
@@ -211,11 +214,11 @@ class AgentGenerator:
                 'message_type': MessageType.AGENT_COMPLETE
             }
             
-            yield f"data: {json.dumps(response_dict)}\n\n"
+            yield f"data: {json.dumps(response_dict)}\\n\\n"
 
         except Exception as e:
             logger.error(f"Error in agent generation: {str(e)}")
-            yield f"data: {json.dumps({'text': 'An error occurred. Please try again.', 'message_type': MessageType.TEXT})}\n\n"
+            yield f"data: {json.dumps({'text': 'An error occurred. Please try again.', 'message_type': MessageType.TEXT})}\\n\\n"
 
     def _generate_thinking_from_details(self, agent_details: AgentDetails) -> str:
         """Generate thinking process based on actual agent details"""
