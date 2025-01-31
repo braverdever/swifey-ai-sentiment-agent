@@ -30,6 +30,12 @@ class ChatListResponse(BaseModel):
     message: str
     chats: List[ChatPreview]
 
+class UnMatchRequest(BaseModel):
+    other_user_id: str
+
+class UnMatchResponse(BaseModel):
+    success: bool
+
 class Message(BaseModel):
     message_id: str
     sender_id: str
@@ -343,6 +349,28 @@ async def get_active_truthbomb(other_user_id: str, user_id: str = Depends(verify
                 "message": "Truth bomb found",
                 "isActive": True,
                 "truth_bomb": response.data[0]['id']
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "isActive": True,
+                "truth_bomb": None
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/unmatch", response_model= UnMatchResponse)
+async def unmatch( request: UnMatchRequest, user_id: str = Depends(verify_app_token)):
+    try: 
+        supabase = get_supabase()
+        response = supabase.rpc("unmatch", { "user_id1": user_id, "user_id2": request.other_user_id }).execute()
+        if response is None:
+            return {
+                "success": True,
+                "message": "No truth bomb found",
+                "isActive": True,
+                "truth_bomb": None
             }
         else:
             return {
